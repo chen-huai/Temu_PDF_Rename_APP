@@ -45,10 +45,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     
     def select_files(self):
         """选择PDF文件"""
+        default_dir = r"N:\XM Softlines\6. Personel\6. Daily Priority Testing List"
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "选择PDF文件",
-            "",
+            default_dir,
             "PDF文件 (*.pdf);;所有文件 (*)"
         )
 
