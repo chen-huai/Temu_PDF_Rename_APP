@@ -60,24 +60,40 @@ class PDFProcessor:
 
             if not test_results:
                 # 如果没有找到任何测试结果
-                final_conclusion = 'Fail'
-                logger.warning("未找到任何测试结果，默认为Fail")
+                final_conclusion = '未找到结论'
+                logger.warning("未找到任何测试结果，默认为未找到结论")
             else:
-                # 检查是否有明确的Fail结果
-                has_fail = any(result == 'Fail' for result in test_results.values())
-                # 检查是否所有结果都是Pass
-                all_pass = all(result == 'Pass' for result in test_results.values())
+                # 过滤掉未找到方法的测试结果，只考虑找到方法的
+                found_methods_results = {method: result for method, result in test_results.items()
+                                        if result != '未找到方法'}
 
-                if has_fail:
-                    final_conclusion = 'Fail'
-                    logger.info("发现测试方法结果为Fail，最终结论为Fail")
-                elif all_pass:
-                    final_conclusion = 'Pass'
-                    logger.info("所有测试方法结果都为Pass，最终结论为Pass")
+                logger.info(f"排除未找到方法后的结果: {found_methods_results}")
+
+                if not found_methods_results:
+                    # 如果所有方法都没找到
+                    final_conclusion = '未找到结论'
+                    logger.warning("所有测试方法都未找到，最终结论为未找到结论")
                 else:
-                    # 有未找到的测试方法，保守处理为Fail
-                    final_conclusion = 'Fail'
-                    logger.warning("部分测试方法未找到明确结论，保守处理为Fail")
+                    # 检查是否有未找到结论
+                    has_no_conclusion = any(result == '未找到结论' for result in found_methods_results.values())
+                    # 检查是否有Fail结果
+                    has_fail = any(result == 'Fail' for result in found_methods_results.values())
+                    # 检查是否所有结果都是Pass
+                    all_pass = all(result == 'Pass' for result in found_methods_results.values())
+
+                    if has_no_conclusion:
+                        final_conclusion = '未找到结论'
+                        logger.info("发现测试方法结果为未找到结论，最终结论为未找到结论")
+                    elif has_fail:
+                        final_conclusion = 'Fail'
+                        logger.info("发现测试方法结果为Fail，最终结论为Fail")
+                    elif all_pass:
+                        final_conclusion = 'Pass'
+                        logger.info("所有找到的测试方法结果都为Pass，最终结论为Pass")
+                    else:
+                        # 其他情况默认为未找到结论
+                        final_conclusion = '未找到结论'
+                        logger.warning("测试结果异常，默认为未找到结论")
 
             logger.info(f"提取完成: Sampling ID={sampling_id}, Report No={report_no}, 最终结论={final_conclusion}")
 
@@ -253,6 +269,8 @@ class PDFProcessor:
         """为特定测试方法查找结论 - 按行处理版本"""
         logger.debug(f"正在按行查找测试方法 '{test_method}' 的结论...")
 
+        method_found = False  # 标记是否找到了测试方法
+
         for i, line in enumerate(lines):
             line = line.strip()
             if not line:
@@ -261,9 +279,9 @@ class PDFProcessor:
             # 查找包含测试方法的行
             if re.search(re.escape(test_method), line, re.IGNORECASE):
                 logger.debug(f"找到测试方法 '{test_method}' 在行 {i}: '{line}'")
+                method_found = True
 
                 # 从当前行开始，向下查找包含Pass/Fail的行
-                conclusion_count = 0
                 for j in range(i + 1, min(i + 15, len(lines))):  # 向下查找15行
                     search_line = lines[j].strip()
                     if not search_line:
@@ -273,22 +291,22 @@ class PDFProcessor:
 
                     # 检查该行是否包含Pass/Fail关键词
                     conclusion = self._extract_conclusion_from_line(search_line)
-                    if conclusion:
-                        conclusion_count += 1
-                        logger.debug(f"找到第 {conclusion_count} 个结论 '{conclusion}' 在行 {j}: '{search_line}'")
-
-                        # 如果是第二个结论，则返回
-                        if conclusion_count == 2:
-                            logger.info(f"测试方法 '{test_method}' 找到第二个结论: {conclusion}")
-                            return conclusion
+                    if conclusion in ['Pass', 'Fail']:  # 只接受Pass或Fail
+                        logger.info(f"测试方法 '{test_method}' 找到结论: {conclusion}")
+                        return conclusion
                     else:
                         # 如果该行不包含结论，但有大量描述性文本，可能不是我们想要的结论
                         if len(search_line) > 50 and not any(keyword in search_line.lower()
                             for keyword in ['pass', 'fail', 'compliant', 'non-compliant', '符合', '不合格']):
                             logger.debug(f"行 {j} 包含描述性文本，跳过: '{search_line[:50]}...'")
 
-        logger.warning(f"未找到测试方法 '{test_method}' 的第二个结论，默认为Fail")
-        return 'Fail'
+        # 根据是否找到测试方法返回不同的结果
+        if not method_found:
+            logger.warning(f"未找到测试方法 '{test_method}'")
+            return '未找到方法'
+        else:
+            logger.warning(f"找到测试方法 '{test_method}' 但未找到有效结论(Pass/Fail)")
+            return '未找到结论'
 
     def _extract_conclusion_from_line(self, line: str) -> Optional[str]:
         """从行中提取结论"""

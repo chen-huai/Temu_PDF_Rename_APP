@@ -79,7 +79,7 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(_translate("MainWindow", "PDF"))
         self.groupBox.setTitle(_translate("MainWindow", "操作"))
         self.pushButton.setText(_translate("MainWindow", "测试方法"))
-        self.lineEdit.setText(_translate("MainWindow", "Total Lead Content Test;Total Cadmium Content Test"))
+        self.lineEdit.setText(_translate("MainWindow", "Total Lead Content Test;Total Cadmium Content Test;Nickel Release Test"))
         self.pushButton_2.setText(_translate("MainWindow", "选择文件"))
         self.pushButton_3.setText(_translate("MainWindow", "重命名"))
         self.groupBox_2.setTitle(_translate("MainWindow", "信息"))

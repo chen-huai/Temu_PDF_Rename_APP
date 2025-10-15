@@ -71,7 +71,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # 运行主GUI应用程序（推荐）
-python main.py
+python PDF_Rename_Operation.py
 
 # 运行旧版本控制台程序（已弃用）
 python rename_pdf.py
