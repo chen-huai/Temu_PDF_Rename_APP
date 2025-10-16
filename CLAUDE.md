@@ -1,48 +1,209 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-请使用中文回答
+**[根目录](./CLAUDE.md)**
 
-## Project Overview
+## 变更记录 (Changelog)
 
-这是一个Python桌面应用程序，用于批量重命名PDF文件，专门为Temu PDF处理工作流程设计。应用程序从PDF内容中提取Sampling ID、Report No和测试结果，并根据特定的命名约定重命名文件。
+- **2025-10-16 09:10:18** - 完成架构分析和文档初始化，添加模块结构图和详细模块文档
+- **原有版本** - 基础项目文档
 
-## Architecture
+## 项目愿景
 
-### Core Components
+为Temu PDF处理工作流程提供高效、准确的批量重命名工具，自动化提取PDF关键信息并按标准命名约定重命名文件，大幅提升工作效率。
 
-1. **main.py** - 主应用程序文件，包含完整的业务逻辑
-   - `MainWindow`类：主窗口，连接UI和业务逻辑
-   - 使用`PDFProcessor`类进行PDF信息提取和重命名逻辑
-   - 支持批量文件处理和实时进度显示
-   - 生成Excel报告功能
+## 架构总览
 
-2. **pdf_processor.py** - PDF处理引擎模块
-   - `PDFProcessor`类：核心PDF信息提取和处理逻辑
-   - 支持多页面PDF文本提取
-   - 智能模式匹配Sampling ID和Report No
-   - 测试结果结论判断逻辑
-   - 支持加密PDF处理
+### 技术栈
+- **界面框架**: PyQt5 (桌面GUI应用)
+- **PDF处理**: PyPDF2 (文本提取)
+- **数据处理**: pandas (Excel报告生成)
+- **打包工具**: PyInstaller (可执行文件生成)
 
-3. **PDF_Rename_UI.py** - PyQt5生成的UI代码（自动生成）
-   - 定义主窗口结构和标签页界面
-   - 包含操作按钮（测试方法、选择文件、重命名）
-   - 信息显示区域用于处理反馈
+### 架构模式
+采用**界面与业务逻辑分离**的架构模式：
+- **表示层**: PyQt5界面组件
+- **业务层**: pdf_processor核心处理引擎
+- **工具层**: 打包和部署脚本
 
-4. **PDF_Rename_UI.ui** - Qt Designer UI定义文件
-   - 定义应用程序的视觉布局
-   - 可以用Qt Designer编辑并重新生成
+### 设计原则
+- **单一职责**: 每个模块专注特定功能
+- **松耦合**: 界面与业务逻辑独立
+- **错误处理**: 完善的异常处理和用户反馈
+- **用户体验**: 直观的操作界面和实时进度反馈
 
-5. **rename_pdf.py** - 旧版本处理引擎（已弃用）
-   - 保留用于参考，包含原始SKU ID提取逻辑
-   - 基于tkinter的命令行界面
+## ✨ 模块结构图
 
-6. **chicon_rc.py** - 编译的Qt资源文件，用于应用程序图标
-   - 从chicon.qrc资源定义自动生成
+```mermaid
+graph TD
+    A["(根) Temu PDF重命名工具"] --> B["PDF_Rename_Operation.py<br/>主应用程序"];
+    A --> C["pdf_processor.py<br/>PDF处理引擎"];
+    A --> D["PDF_Rename_UI.py<br/>界面定义"];
+    A --> E["打包工具.py<br/>部署脚本"];
+    A --> F["配置与资源"];
 
-### Key Functionality
+    B --> G["MainWindow类<br/>界面管理"];
+    B --> H["文件处理流程<br/>与报告生成"];
 
-**PDF处理工作流程：**
+    C --> I["PDFProcessor类<br/>核心业务逻辑"];
+    C --> J["文本提取<br/>与信息解析"];
+
+    D --> K["Ui_MainWindow类<br/>Qt界面定义"];
+
+    E --> L["依赖检查<br/>与打包配置"];
+
+    F --> M["PDF_Rename_UI.ui<br/>Qt Designer文件"];
+    F --> N["chicon.qrc<br/>资源文件"];
+    F --> O[".spec文件<br/>PyInstaller配置"];
+
+    click B "./PDF_Rename_Operation/CLAUDE.md" "查看主应用程序模块文档"
+    click C "./pdf_processor/CLAUDE.md" "查看PDF处理引擎模块文档"
+    click D "./PDF_Rename_UI/CLAUDE.md" "查看界面定义模块文档"
+    click E "./打包工具/CLAUDE.md" "查看部署工具模块文档"
+```
+
+## 模块索引
+
+| 模块名称 | 文件路径 | 类型 | 主要职责 | 入口文件 |
+|---------|---------|------|---------|---------|
+| **主应用程序** | `PDF_Rename_Operation.py` | 核心模块 | GUI界面管理、用户交互、流程控制 | ✅ 是 |
+| **PDF处理引擎** | `pdf_processor.py` | 核心模块 | PDF文本提取、信息解析、重命名逻辑 | ❌ 否 |
+| **界面定义** | `PDF_Rename_UI.py` | 支持模块 | Qt界面布局、UI组件定义 | ❌ 否 |
+| **打包工具** | `打包工具.py` | 工具模块 | 依赖管理、应用打包、便携版创建 | ❌ 否 |
+| **UI设计文件** | `PDF_Rename_UI.ui` | 资源文件 | Qt Designer可视化设计 | ❌ 否 |
+| **资源文件** | `chicon.qrc/.py` | 资源文件 | 应用程序图标资源 | ❌ 否 |
+
+## 运行与开发
+
+### 环境要求
+```bash
+Python 3.7+
+PyQt5 >= 5.15.0
+PyPDF2 >= 3.0.0
+pandas >= 1.3.0
+```
+
+### 开发命令
+```bash
+# 运行主应用程序
+python PDF_Rename_Operation.py
+
+# 编辑界面(需要Qt Designer)
+# 打开 PDF_Rename_UI.ui
+
+# 重新生成UI代码
+pyuic5 -x PDF_Rename_UI.ui -o PDF_Rename_UI.py
+
+# 重新生成资源文件
+pyrcc5 chicon.qrc -o chicon_rc.py
+
+# 打包应用程序
+python 打包工具.py
+```
+
+### 默认配置
+- **输出目录**: `C:\Users\chen-fr\Desktop\test\1`
+- **默认测试方法**: `Total Lead Content Test;Total Cadmium Content Test;Nickel Release Test`
+- **文件命名格式**: `Sampling ID-Report No-结论.pdf`
+
+## 测试策略
+
+### 功能测试
+- **测试方法按钮**: 对第一个PDF文件进行试运行，不实际重命名
+- **批量处理**: 支持多文件同时处理
+- **错误处理**: 文件不存在、PDF加密、提取失败等异常场景
+
+### 测试流程
+1. 启动应用程序
+2. 输入测试方法列表（分号分隔）
+3. 选择要处理的PDF文件
+4. 点击"测试方法"验证提取逻辑
+5. 确认无误后点击"重命名"执行批量处理
+
+## 编码规范
+
+### 代码风格
+- **编码**: UTF-8
+- **缩进**: 4个空格
+- **命名**: 驼峰命名法（类）、下划线命名法（函数/变量）
+- **文档**: 每个模块和主要函数包含中文文档字符串
+
+### 架构约束
+- **UI与业务分离**: UI文件自动生成，不手动修改
+- **模块化设计**: 核心业务逻辑独立成模块
+- **错误处理**: 所有外部操作包含try-catch处理
+- **日志记录**: 关键操作和错误信息记录到日志
+
+## AI 使用指引
+
+### 代码修改指导原则
+1. **优先修改业务逻辑**: pdf_processor.py是核心模块
+2. **谨慎修改UI**: 通过修改.ui文件而非.py文件
+3. **保持向后兼容**: 确保现有功能不受影响
+4. **添加测试覆盖**: 新功能应包含相应的测试逻辑
+
+### 常见任务指引
+- **添加新的测试方法**: 修改pdf_processor.py中的结论关键词列表
+- **修改输出格式**: 调整generate_new_filename方法
+- **优化提取逻辑**: 改进_extract_开头的各个提取方法
+- **界面调整**: 使用Qt Designer修改.ui文件
+
+## 核心业务流程
+
+### PDF处理工作流
+```mermaid
+flowchart TD
+    A[选择PDF文件] --> B[提取PDF全文]
+    B --> C[解析Sampling ID]
+    B --> D[解析Report No]
+    B --> E[查找测试方法]
+    E --> F[判断Pass/Fail结论]
+    F --> G[计算最终结论]
+    G --> H[生成新文件名]
+    H --> I[执行文件重命名]
+    I --> J[生成Excel报告]
+```
+
+### 信息提取规则
+- **Sampling ID**: 查找"Sampling ID:"后的内容
+- **Report No**: 查找"Report No.:"后的内容
+- **测试结论**: 在测试方法后15行内查找Pass/Fail关键词
+- **最终结论**: 任一测试Fail则整体Fail，否则Pass
+
+## 项目特色
+
+### 智能信息提取
+- 支持多页面PDF全文扫描
+- 多种格式和语言的结论关键词识别
+- 容错性强的正则表达式匹配
+
+### 用户友好设计
+- 实时处理进度显示
+- 详细的操作日志和错误反馈
+- 测试模式验证提取逻辑
+
+### 生产就绪
+- 完善的错误处理机制
+- 支持加密PDF处理尝试
+- Excel报告便于后续分析
+
+## 部署与分发
+
+### 打包配置
+- **打包工具**: PyInstaller
+- **输出格式**: 单文件可执行程序
+- **目标平台**: Windows桌面应用
+- **图标资源**: 自定义应用图标
+
+### 分发包结构
+```
+PDF重命名工具_便携版/
+├── PDF_Rename_Operation.exe  # 主程序
+└── 使用说明.txt              # 用户指南
+```
+
+## 详细功能说明
+
+### PDF处理工作流程
 - 选择多个PDF文件进行处理
 - 从PDF所有页面提取文本内容
 - 提取关键信息：
@@ -54,81 +215,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 在原始位置重命名文件（不移动到其他文件夹）
 - 在指定目录生成带时间戳的Excel报告
 
-**文件命名约定：**
+### 文件命名约定
 - 输入：原始PDF文件名
 - 输出：`Sampling ID-Report No-pass.pdf` 或 `Sampling ID-Report No-fail.pdf`
 - 如果无法提取信息，使用默认值：`UNKNOWN_SAMPLING_ID-UNKNOWN_REPORT_NO-fail.pdf`
 
-**测试方法处理：**
+### 测试方法处理
 - 用户在lineEdit中输入测试方法，用分号分隔
 - 例如：`Total Lead Content Test;Total Cadmium Content Test`
 - 系统为每个测试方法查找对应的pass/fail结论
 - 支持多种语言的结论关键词（中英文）
 
-## Development Commands
+## 重要注意事项
 
-### Running the Application
-
-```bash
-# 运行主GUI应用程序（推荐）
-python PDF_Rename_Operation.py
-
-# 运行旧版本控制台程序（已弃用）
-python rename_pdf.py
-
-# 直接运行UI（无业务逻辑）
-python PDF_Rename_UI.py
-```
-
-### UI Development
-
-```bash
-# Edit UI in Qt Designer
-# (Open PDF_Rename_UI.ui in Qt Designer)
-
-# Regenerate Python UI code from .ui file
-pyuic5 -x PDF_Rename_UI.ui -o PDF_Rename_UI.py
-
-# Regenerate resource file from .qrc
-pyrcc5 chicon.qrc -o chicon_rc.py
-```
-
-### Dependencies
-
-The application requires these Python packages:
-- PyQt5 (GUI framework)
-- PyPDF2 (PDF text extraction)
-- pandas (Excel report generation)
-- tkinter (file dialogs, included with Python)
-
-Install with:
-```bash
-pip install PyQt5 PyPDF2 pandas
-```
-
-## File Configuration
-
-**输出目录配置：**
-- Excel报告生成目录：`C:\Users\chen-fr\Desktop\test\1`
-- 文件重命名在原始位置进行，不移动到其他文件夹
-- 应用程序会自动创建输出目录（如果不存在）
-
-## Testing Strategy
-
-**"测试方法"按钮功能：**
-- 对第一个选中的PDF文件进行测试处理
-- 不实际重命名文件，只显示提取的信息和生成的新文件名
-- 用于验证PDF信息提取逻辑是否正确
-
-**测试流程：**
-1. 在lineEdit中输入测试方法（用分号分隔）
-2. 选择PDF文件
-3. 点击"测试方法"按钮
-4. 查看textBrowser中显示的测试结果
-
-## Important Notes
-
-- 主程序文件是`main.py`，包含完整的业务逻辑
+- 主程序文件是`PDF_Rename_Operation.py`，包含完整的业务逻辑
 - PDF处理核心逻辑在`pdf_processor.py`模块中
 - UI文件（`PDF_Rename_UI.py`）是自动生成的，手动修改会丢失
 - 编辑UI时，请修改`.ui`文件然后用pyuic5重新生成Python代码
@@ -140,26 +240,26 @@ pip install PyQt5 PyPDF2 pandas
 - 文件重命名格式：`Sampling ID-Report No-最终结论.pdf`
 - 支持加密PDF的文本提取尝试
 
-## Code Structure
+## 核心算法详解
 
 ### PDF Information Extraction
 
-**Sampling ID提取逻辑 (pdf_processor.py:177-205):**
+**Sampling ID提取逻辑 (pdf_processor.py:193-221):**
 - 按行扫描PDF文本内容
 - 查找包含"Sampling ID:"的行
 - 使用正则表达式提取冒号后的值
 - 清理特殊字符，保留字母数字和常用符号
 
-**Report No提取逻辑 (pdf_processor.py:207-234):**
+**Report No提取逻辑 (pdf_processor.py:223-250):**
 - 类似Sampling ID的提取方式
 - 查找包含"Report No.:"的行
 - 支持多种报告编号格式
 
-**测试结果判断逻辑 (pdf_processor.py:236-365):**
+**测试结果判断逻辑 (pdf_processor.py:252-382):**
 - 按行处理，查找用户指定的测试方法
 - 向下搜索15行内的Pass/Fail关键词
-- 返回第二个结论作为测试结果
 - 支持中英文关键词：pass/fail, 符合/不符合, 合格/不合格等
+- 智能判断最终结论（任一Fail则整体Fail）
 
 ### Error Handling
 
