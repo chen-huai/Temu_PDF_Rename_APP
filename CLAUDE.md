@@ -101,7 +101,7 @@ python 打包工具.py
 ```
 
 ### 默认配置
-- **输出目录**: `C:\Users\chen-fr\Desktop\test\1`
+- **输出目录**: 动态确定，与用户选择的PDF文件所在目录一致
 - **默认测试方法**: `Total Lead Content Test;Total Cadmium Content Test;Nickel Release Test`
 - **文件命名格式**: `Sampling ID-Report No-结论.pdf`
 

@@ -32,11 +32,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.pushButton_3.clicked.connect(self.rename_files)
         self.pushButton.clicked.connect(self.test_method)  # 添加测试方法按钮连接
 
-        # 设置输出目录
-        self.output_dir = r"C:\Users\chen-fr\Desktop\test\1"
-
-        # 确保输出目录存在
-        os.makedirs(self.output_dir, exist_ok=True)
+        # 输出目录将根据用户选择的文件动态确定
+        self.output_dir = None
 
         logger.info("主窗口初始化完成")
 
@@ -282,12 +279,42 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.error(f"测试过程中出错: {e}")
             self.textBrowser.append(f"测试过程中出错: {e}")
 
+    def _get_output_directory(self) -> str:
+        """获取Excel报告输出目录"""
+        if self.pdf_files:
+            return os.path.dirname(self.pdf_files[0])
+        return os.getcwd()
+
+    def _ensure_directory_writable(self, directory: str) -> bool:
+        """确保目录可写"""
+        try:
+            test_file = os.path.join(directory, ".write_test")
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+            logger.info(f"目录可写性验证通过: {directory}")
+            return True
+        except Exception as e:
+            logger.warning(f"目录不可写: {directory}, 错误: {e}")
+            return False
+
     def generate_excel_report(self, results):
         """生成Excel报告"""
         try:
+            # 获取输出目录
+            output_directory = self._get_output_directory()
+
+            # 验证目录可写性
+            if not self._ensure_directory_writable(output_directory):
+                # 如果当前目录不可写，尝试使用临时目录
+                import tempfile
+                output_directory = tempfile.gettempdir()
+                self.textBrowser.append(f"警告：原目录不可写，报告将保存到临时目录: {output_directory}")
+                logger.info(f"使用临时目录作为输出目录: {output_directory}")
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             excel_filename = f"pdf_rename_report_{timestamp}.xlsx"
-            excel_path = os.path.join(self.output_dir, excel_filename)
+            excel_path = os.path.join(output_directory, excel_filename)
 
             # 准备数据
             data = []
