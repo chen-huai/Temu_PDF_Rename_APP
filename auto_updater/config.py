@@ -32,12 +32,14 @@ DEFAULT_REQUEST_HEADERS = {
 # 配置文件名
 UPDATER_CONFIG_FILE = "updater_config.json"
 UPDATE_STATE_FILE = "update_state.json"
+DEFAULT_UPDATE_CONFIG_FILE = "update_config.json"  # 默认更新配置文件名
 
 class Config:
     """配置管理类 - 从配置文件加载项目特定信息"""
 
     def __init__(self):
         self._config = self._load_config()
+        self._version_cache = {}  # 版本解析缓存
 
     def _load_config(self) -> dict:
         """加载配置文件"""
@@ -139,6 +141,22 @@ class Config:
         """当前版本号"""
         return self._config.get("version", {}).get("current", "1.0.0")
 
+    @property
+    def github_owner(self) -> str:
+        """GitHub仓库所有者"""
+        return self._config.get("repository", {}).get("owner", "your-username")
+
+    @property
+    def github_repo_name(self) -> str:
+        """GitHub仓库名称"""
+        return self._config.get("repository", {}).get("repo", "your-repo")
+
+    @property
+    def is_valid_version(self) -> bool:
+        """验证当前版本号格式是否有效"""
+        parsed_version = self._parse_version(self.current_version)
+        return parsed_version is not None
+
     def update_current_version(self, new_version: str) -> bool:
         """
         更新配置文件中的版本号
@@ -147,6 +165,8 @@ class Config:
         """
         try:
             self._config["version"]["current"] = new_version
+            # 清除版本缓存以确保一致性
+            self._version_cache.clear()
             self._save_config()
             return True
         except Exception as e:
@@ -172,6 +192,15 @@ class Config:
             print(f"保存配置文件失败: {e}")
             return False
 
+    def _parse_version(self, version_str: str):
+        """解析版本号（带缓存）"""
+        if version_str not in self._version_cache:
+            try:
+                self._version_cache[version_str] = version.parse(version_str.lstrip('v'))
+            except Exception:
+                self._version_cache[version_str] = None
+        return self._version_cache[version_str]
+
     def compare_versions(self, version1: str, version2: str) -> int:
         """
         比较两个版本号
@@ -180,8 +209,13 @@ class Config:
         :return: -1(v1<v2), 0(v1=v2), 1(v1>v2)
         """
         try:
-            v1 = version.parse(version1.lstrip('v'))
-            v2 = version.parse(version2.lstrip('v'))
+            v1 = self._parse_version(version1)
+            v2 = self._parse_version(version2)
+
+            if v1 is None or v2 is None:
+                print(f"版本比较失败: 无效的版本号")
+                return 0
+
             if v1 < v2:
                 return -1
             elif v1 > v2:
