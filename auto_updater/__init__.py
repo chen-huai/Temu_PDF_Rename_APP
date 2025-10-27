@@ -4,7 +4,7 @@ PDF重命名工具自动更新模块
 提供基于GitHub Releases的自动更新功能
 """
 
-from .version_manager import VersionManager
+from .config import get_config
 from .github_client import GitHubClient
 from .download_manager import DownloadManager
 from .backup_manager import BackupManager
@@ -48,7 +48,7 @@ class AutoUpdater:
         初始化自动更新器
         :param parent: 父对象（用于GUI信号连接）
         """
-        self.version_manager = VersionManager()
+        self.config = get_config()
         self.github_client = GitHubClient()
         self.download_manager = DownloadManager()
         self.backup_manager = BackupManager()
@@ -62,32 +62,31 @@ class AutoUpdater:
         :return: (是否有更新, 远程版本, 本地版本, 错误信息)
         """
         try:
+            local_version = self.config.current_version
+
             # 检查是否应该进行更新检查
-            if not force_check and not self.version_manager.should_check_for_updates():
-                local_version = self.version_manager.get_local_version()
+            if not force_check and not self.config.should_check_for_updates():
                 return False, None, local_version, "距离上次检查时间过短"
 
             # 获取远程版本信息
             release_info = self.github_client.get_latest_release()
             if not release_info:
-                local_version = self.version_manager.get_local_version()
                 return False, None, local_version, "无法获取远程版本信息"
 
             remote_version = release_info.get('tag_name', '').lstrip('v')
             if not remote_version:
-                local_version = self.version_manager.get_local_version()
                 return False, None, local_version, "远程版本格式无效"
 
             # 检查是否有更新
-            has_update, local_version = self.version_manager.is_update_available(remote_version)
+            has_update = self.config.is_newer_version(remote_version, local_version)
 
             # 更新最后检查时间
-            self.version_manager.update_last_check_time()
+            self.config.update_last_check_time()
 
             return has_update, remote_version, local_version, None
 
         except Exception as e:
-            local_version = self.version_manager.get_local_version()
+            local_version = self.config.current_version
             return False, None, local_version, f"检查更新失败: {str(e)}"
 
     def download_update(self, version: str, progress_callback=None) -> tuple:
@@ -157,7 +156,6 @@ class AutoUpdater:
 # 导出的公共接口
 __all__ = [
     'AutoUpdater',
-    'VersionManager',
     'GitHubClient',
     'DownloadManager',
     'BackupManager',

@@ -1,8 +1,7 @@
 {
   "app": {
     "name": "PDF重命名工具",
-    "executable": "PDF_Rename_Operation.exe",
-    "version_file": "version.txt"
+    "executable": "PDF_Rename_Operation.exe"
   },
   "repository": {
     "owner": "chen-huai",

@@ -18,7 +18,23 @@ import webbrowser
 
 # 导入自定义模块
 from pdf_processor import PDFProcessor
-from version_manager import get_version_manager, get_version, get_version_display_text
+from auto_updater.config import get_config
+
+def get_version_display_text():
+    """获取版本显示文本"""
+    try:
+        config = get_config()
+        return f"版本 {config.current_version}"
+    except Exception:
+        return "版本 未知"
+
+def get_version():
+    """获取当前版本号"""
+    try:
+        config = get_config()
+        return config.current_version
+    except Exception:
+        return "未知"
 
 # 导入更新模块
 try:
@@ -493,7 +509,7 @@ class AboutDialog(QDialog):
 
     def init_ui(self):
         """初始化UI"""
-        self.setWindowTitle(get_version_manager().get_about_dialog_title())
+        self.setWindowTitle("关于 PDF重命名工具")
         self.setFixedSize(450, 400)
         self.setModal(True)
 
@@ -576,7 +592,7 @@ class AboutDialog(QDialog):
         try:
             # 显示当前版本
             if self.auto_updater:
-                local_version = self.auto_updater.version_manager.get_local_version()
+                local_version = self.auto_updater.config.current_version
                 self.version_label.setText(f"版本: {local_version}")
 
                 # 异步检查更新状态

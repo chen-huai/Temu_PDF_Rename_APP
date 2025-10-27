@@ -16,7 +16,7 @@ from .config import (
     get_app_executable_path,
     get_executable_dir
 )
-from .version_manager import VersionManager
+from .config import get_config
 from .backup_manager import BackupManager
 
 # 异常类定义
@@ -28,7 +28,7 @@ class UpdateExecutor:
     """更新执行器"""
 
     def __init__(self):
-        self.version_manager = VersionManager()
+        self.config = get_config()
         self.backup_manager = BackupManager()
 
     def execute_update(self, update_file_path: str, new_version: str) -> bool:
@@ -73,7 +73,7 @@ class UpdateExecutor:
             print(f"开发环境模拟更新: 版本 {new_version}")
 
             # 更新版本文件
-            success = self.version_manager.update_local_version(new_version)
+            success = self.config.update_current_version(new_version)
             if success:
                 print(f"版本已更新到: {new_version}")
                 return True
@@ -106,7 +106,7 @@ class UpdateExecutor:
                 return self._schedule_delayed_update(update_file_path, current_exe_path, new_version)
 
             # 更新版本文件
-            self.version_manager.update_local_version(new_version)
+            self.config.update_current_version(new_version)
 
             print("文件替换成功，更新完成")
             return True
@@ -166,8 +166,7 @@ timeout /t 2 /nobreak >nul
 REM 替换可执行文件
 copy /Y "{update_file_path}" "{current_exe_path}"
 
-REM 更新版本文件
-echo {new_version} > "{os.path.join(get_executable_dir(), 'version.txt')}"
+REM 版本信息已通过配置文件更新，无需单独的版本文件
 
 REM 启动新版本
 start "" "{current_exe_path}"

@@ -3,12 +3,16 @@
 自动更新配置模块
 提供更新功能的全局配置和常量定义
 支持从外部配置文件读取项目特定信息
+集成版本管理功能，提供完整的配置和版本管理
 """
 
 import os
 import sys
 import json
 from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Optional
+from packaging import version
 
 # 默认配置（如果配置文件不存在时使用）
 DEFAULT_GITHUB_REPO = "your-username/your-repo"
@@ -17,8 +21,6 @@ DEFAULT_UPDATE_CHECK_INTERVAL_DAYS = 30
 DEFAULT_MAX_BACKUP_COUNT = 3
 DEFAULT_DOWNLOAD_TIMEOUT = 300
 DEFAULT_APP_NAME = "your_app.exe"
-DEFAULT_VERSION_FILE = "version.txt"
-DEFAULT_UPDATE_CONFIG_FILE = "update_config.json"
 DEFAULT_BACKUP_DIR = "backup"
 
 # 默认网络配置
@@ -29,6 +31,7 @@ DEFAULT_REQUEST_HEADERS = {
 
 # 配置文件名
 UPDATER_CONFIG_FILE = "updater_config.json"
+UPDATE_STATE_FILE = "update_state.json"
 
 class Config:
     """配置管理类 - 从配置文件加载项目特定信息"""
@@ -61,8 +64,7 @@ class Config:
         return {
             "app": {
                 "name": "默认应用",
-                "executable": DEFAULT_APP_NAME,
-                "version_file": DEFAULT_VERSION_FILE
+                "executable": DEFAULT_APP_NAME
             },
             "repository": {
                 "owner": "your-username",
@@ -126,11 +128,7 @@ class Config:
         """应用可执行文件名"""
         return self._config.get("app", {}).get("executable", DEFAULT_APP_NAME)
 
-    @property
-    def version_file(self) -> str:
-        """版本文件名"""
-        return self._config.get("app", {}).get("version_file", DEFAULT_VERSION_FILE)
-
+    
     @property
     def request_headers(self) -> dict:
         """网络请求头"""
@@ -140,6 +138,146 @@ class Config:
     def current_version(self) -> str:
         """当前版本号"""
         return self._config.get("version", {}).get("current", "1.0.0")
+
+    def update_current_version(self, new_version: str) -> bool:
+        """
+        更新配置文件中的版本号
+        :param new_version: 新版本号
+        :return: 是否更新成功
+        """
+        try:
+            self._config["version"]["current"] = new_version
+            self._save_config()
+            return True
+        except Exception as e:
+            print(f"更新版本号失败: {e}")
+            return False
+
+    def _save_config(self) -> bool:
+        """
+        保存配置到文件
+        :return: 是否保存成功
+        """
+        try:
+            if getattr(sys, 'frozen', False):
+                exec_dir = os.path.dirname(sys.executable)
+            else:
+                exec_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+            config_path = os.path.join(exec_dir, UPDATER_CONFIG_FILE)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(self._config, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"保存配置文件失败: {e}")
+            return False
+
+    def compare_versions(self, version1: str, version2: str) -> int:
+        """
+        比较两个版本号
+        :param version1: 版本号1
+        :param version2: 版本号2
+        :return: -1(v1<v2), 0(v1=v2), 1(v1>v2)
+        """
+        try:
+            v1 = version.parse(version1.lstrip('v'))
+            v2 = version.parse(version2.lstrip('v'))
+            if v1 < v2:
+                return -1
+            elif v1 > v2:
+                return 1
+            else:
+                return 0
+        except Exception as e:
+            print(f"版本比较失败: {e}")
+            return 0
+
+    def is_newer_version(self, remote_version: str, local_version: str = None) -> bool:
+        """
+        检查远程版本是否比本地版本新
+        :param remote_version: 远程版本号
+        :param local_version: 本地版本号（可选）
+        :return: 是否有更新
+        """
+        if local_version is None:
+            local_version = self.current_version
+
+        return self.compare_versions(remote_version, local_version) > 0
+
+    def get_last_check_time(self) -> Optional[datetime]:
+        """
+        获取上次检查更新的时间
+        :return: 上次检查时间，如果没有则返回None
+        """
+        try:
+            state = self._load_state()
+            last_check_str = state.get('last_check_date')
+            if last_check_str:
+                return datetime.fromisoformat(last_check_str)
+        except Exception as e:
+            print(f"读取上次检查时间失败: {e}")
+        return None
+
+    def should_check_for_updates(self) -> bool:
+        """
+        检查是否应该进行更新检查（基于时间间隔）
+        :return: 是否应该检查更新
+        """
+        last_check = self.get_last_check_time()
+        if last_check is None:
+            return True
+
+        # 检查距离上次检查是否超过配置的间隔天数
+        time_since_last_check = datetime.now() - last_check
+        return time_since_last_check.days >= self.update_check_interval_days
+
+    def update_last_check_time(self) -> bool:
+        """
+        更新最后检查时间
+        :return: 是否更新成功
+        """
+        try:
+            state = self._load_state()
+            state['last_check_date'] = datetime.now().isoformat()
+            self._save_state(state)
+            return True
+        except Exception as e:
+            print(f"更新检查时间失败: {e}")
+            return False
+
+    def _load_state(self) -> dict:
+        """加载状态文件"""
+        try:
+            if getattr(sys, 'frozen', False):
+                exec_dir = os.path.dirname(sys.executable)
+            else:
+                exec_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+            state_path = os.path.join(exec_dir, UPDATE_STATE_FILE)
+            if os.path.exists(state_path):
+                with open(state_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                return {}
+        except Exception as e:
+            print(f"加载状态文件失败: {e}")
+            return {}
+
+    def _save_state(self, state: dict) -> bool:
+        """保存状态文件"""
+        try:
+            if getattr(sys, 'frozen', False):
+                exec_dir = os.path.dirname(sys.executable)
+            else:
+                exec_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+            state_path = os.path.join(exec_dir, UPDATE_STATE_FILE)
+            with open(state_path, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"保存状态文件失败: {e}")
+            return False
 
 # 全局配置实例
 _config = None
@@ -172,7 +310,6 @@ DOWNLOAD_TIMEOUT = _get_config_value('download_timeout', DEFAULT_DOWNLOAD_TIMEOU
 
 # 文件配置
 APP_NAME = _get_config_value('app_name', DEFAULT_APP_NAME)
-VERSION_FILE = _get_config_value('version_file', DEFAULT_VERSION_FILE)
 UPDATE_CONFIG_FILE = DEFAULT_UPDATE_CONFIG_FILE  # 保持向后兼容
 BACKUP_DIR = DEFAULT_BACKUP_DIR  # 保持向后兼容
 
@@ -191,11 +328,6 @@ def get_executable_dir():
     else:
         return os.path.dirname(os.path.abspath(__file__))
 
-def get_version_file_path():
-    """
-    获取版本文件路径
-    """
-    return os.path.join(get_executable_dir(), VERSION_FILE)
 
 def get_update_config_path():
     """
