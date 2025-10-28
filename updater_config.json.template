@@ -1,0 +1,59 @@
+{
+  "_comment": "这是自动更新模块的配置文件模板。复制此文件为updater_config.json并根据您的项目修改相应配置。",
+
+  "app": {
+    "name": "您的应用名称",
+    "executable": "your_app.exe",
+    "version_file": "version.txt",
+    "_comment_app": "应用配置：name=应用显示名称，executable=可执行文件名，version_file=版本文件名"
+  },
+
+  "repository": {
+    "owner": "your-username",
+    "repo": "your-repo",
+    "api_base": "https://api.github.com",
+    "_comment_repository": "GitHub仓库配置：owner=用户名，repo=仓库名，api_base=API基础URL"
+  },
+
+  "version": {
+    "current": "1.0.0",
+    "check_interval_days": 30,
+    "auto_check_enabled": true,
+    "_comment_version": "版本配置：current=当前版本，check_interval_days=自动检查间隔天数，auto_check_enabled=是否启用自动检查"
+  },
+
+  "update": {
+    "backup_count": 3,
+    "download_timeout": 300,
+    "max_retries": 3,
+    "auto_restart": true,
+    "_comment_update": "更新配置：backup_count=备份数量，download_timeout=下载超时秒数，max_retries=最大重试次数，auto_restart=更新后自动重启"
+  },
+
+  "network": {
+    "request_headers": {
+      "Accept": "application/vnd.github.v3+json",
+      "User-Agent": "Your-App-Updater/1.0"
+    },
+    "_comment_network": "网络配置：HTTP请求头设置"
+  },
+
+  "_usage_instructions": [
+    "1. 复制此文件为 updater_config.json",
+    "2. 修改 app.name 为您的应用名称",
+    "3. 修改 app.executable 为您的可执行文件名",
+    "4. 修改 repository.owner 为您的GitHub用户名",
+    "5. 修改 repository.repo 为您的仓库名",
+    "6. 修改 version.current 为您的当前版本号",
+    "7. 根据需要调整其他配置项",
+    "8. 保存文件到应用程序根目录"
+  ],
+
+  "_integration_steps": [
+    "步骤1: 将auto_updater目录复制到您的项目根目录",
+    "步骤2: 将此配置文件模板复制为updater_config.json并修改配置",
+    "步骤3: 在主程序中导入并初始化更新器",
+    "步骤4: 添加更新按钮和菜单项",
+    "步骤5: 测试更新功能"
+  ]
+}

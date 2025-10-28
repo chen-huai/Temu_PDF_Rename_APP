@@ -89,6 +89,7 @@ def build_exe():
     """打包exe文件"""
     print("开始打包...")
 
+    
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name=PDF_Rename_Operation",
@@ -96,9 +97,12 @@ def build_exe():
         "--windowed",
         "--icon=PDF_Rename_Operation_Logo.ico",
         "--clean",
-        "--noconfirm",
-        "PDF_Rename_Operation.py"
+        "--noconfirm"
     ]
+
+  
+    # 添加主程序文件
+    cmd.append("PDF_Rename_Operation.py")
 
     try:
         print("正在执行打包命令...")
@@ -244,7 +248,7 @@ def sign_exe_file(exe_path, certificate_path="170859-code-signing.cer"):
             result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
 
             if result.returncode == 0:
-                print("✅ signtool签名成功!")
+                print("[OK] signtool签名成功!")
                 return True, "signtool签名成功"
             else:
                 print(f"signtool签名失败: {result.stderr}")
@@ -274,7 +278,7 @@ def sign_exe_file(exe_path, certificate_path="170859-code-signing.cer"):
                 pass
 
             if result.returncode == 0:
-                print("✅ PowerShell签名成功!")
+                print("[OK] PowerShell签名成功!")
                 return True, "PowerShell签名成功"
             else:
                 print(f"PowerShell签名失败: {result.stderr}")
@@ -298,7 +302,7 @@ def sign_exe_file(exe_path, certificate_path="170859-code-signing.cer"):
         if result.returncode == 0 and os.path.exists(exe_path + ".signed"):
             # 替换原文件
             os.replace(exe_path + ".signed", exe_path)
-            print("✅ osslsigncode签名成功!")
+            print("[OK] osslsigncode签名成功!")
             return True, "osslsigncode签名成功"
         else:
             print(f"osslsigncode签名失败或不可用")
@@ -328,7 +332,7 @@ def sign_exe_file(exe_path, certificate_path="170859-code-signing.cer"):
     try:
         with open(signature_file, "w", encoding="utf-8") as f:
             json.dump(signature_info, f, indent=2, ensure_ascii=False)
-        print(f"✅ 已创建签名信息文件: {signature_file}")
+        print(f"[OK] 已创建签名信息文件: {signature_file}")
         return True, f"已创建签名信息文件，请手动签名"
     except Exception as e:
         print(f"创建签名信息文件失败: {e}")
@@ -401,9 +405,9 @@ def main():
     certificate_path = "170859-code-signing.cer"
     has_certificate = os.path.exists(certificate_path)
     if has_certificate:
-        print(f"✅ 找到数字证书: {certificate_path}")
+        print(f"[OK] 找到数字证书: {certificate_path}")
     else:
-        print("⚠️  未找到数字证书，将只进行打包")
+        print("[WARN]  未找到数字证书，将只进行打包")
         certificate_path = None
 
     # 安装缺少的包（包括PIL/Pillow）
@@ -436,10 +440,10 @@ def main():
                 success, message = sign_exe_file(exe_path, certificate_path)
                 if success:
                     signature_status = f" (已签名: {message})"
-                    print(f"✅ 代码签名完成: {message}")
+                    print(f"[OK] 代码签名完成: {message}")
                 else:
                     signature_status = f" (签名失败: {message})"
-                    print(f"❌ 代码签名失败: {message}")
+                    print(f"[ERROR] 代码签名失败: {message}")
                     print("提示: 您可以稍后手动进行签名")
             else:
                 print("跳过代码签名")
@@ -452,14 +456,14 @@ def main():
         return False
 
     print("\n" + "=" * 50)
-    print("🎉 一键打包+签名完成!")
+    print("[SUCCESS] 一键打包+签名完成!")
     print("=" * 50)
     print("生成的文件:")
     print(f"1. dist/PDF_Rename_Operation.exe{signature_status} - 单文件可执行程序")
     print("2. PDF重命名工具_便携版/ - 包含说明的完整包")
 
     if signature_status and "已签名" in signature_status:
-        print("\n✅ 数字签名信息:")
+        print("\n[OK] 数字签名信息:")
         print(f"   - 证书文件: {certificate_path}")
         print(f"   - 签名时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("   - 时间戳服务器: http://timestamp.digicert.com")
@@ -475,7 +479,7 @@ def main():
     # 检查是否有签名信息文件
     signature_info_file = exe_path.replace(".exe", "_signature_info.json")
     if os.path.exists(signature_info_file):
-        print(f"\n📄 已生成签名说明文件: {signature_info_file}")
+        print(f"\n[FILE] 已生成签名说明文件: {signature_info_file}")
         print("   请参考此文件进行手动签名操作")
 
     input("\n按回车退出...")

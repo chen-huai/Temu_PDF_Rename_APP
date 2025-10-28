@@ -1,0 +1,28 @@
+{
+  "app": {
+    "name": "PDF重命名工具",
+    "executable": "PDF_Rename_Operation.exe"
+  },
+  "repository": {
+    "owner": "chen-huai",
+    "repo": "Temu_PDF_Rename_APP",
+    "api_base": "https://api.github.com"
+  },
+  "version": {
+    "current": "2.0.0",
+    "check_interval_days": 30,
+    "auto_check_enabled": true
+  },
+  "update": {
+    "backup_count": 3,
+    "download_timeout": 300,
+    "max_retries": 3,
+    "auto_restart": true
+  },
+  "network": {
+    "request_headers": {
+      "Accept": "application/vnd.github.v3+json",
+      "User-Agent": "PDF-Rename-Tool-Updater/1.0"
+    }
+  }
+}

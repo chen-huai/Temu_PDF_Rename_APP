@@ -1,0 +1,75 @@
+{
+  "signature": {
+    "enabled": true,
+    "default_certificate": "pdf_rename_operation",
+    "timestamp_server": "http://timestamp.digicert.com",
+    "hash_algorithm": "sha256",
+
+    "certificates": {
+      "pdf_rename_operation": {
+        "name": "PDF_Rename_Operation证书",
+        "sha1": "144ac4069565211ab67d25a9d6d33af0e18e511e",
+        "subject": "CN=PDF_Rename_Operation, OU=PS:Softlines, O=TÜV SÜD Certification and Testing (China) Co. Ltd. Xiamen Branch, L=Xiamen, C=CN",
+        "issuer": "CN=TUVSUD-IssuingCA, O=TUVSUD, C=SG",
+        "valid_from": "2025-10-15",
+        "valid_to": "2027-10-15",
+        "description": "TUVSUD颁发的PDF重命名工具专用证书"
+      },
+      "default_template": {
+        "name": "默认证书模板",
+        "sha1": "",
+        "subject": "",
+        "issuer": "",
+        "description": "请在使用前配置您的证书信息"
+      }
+    },
+
+    "signing_tools": {
+      "signtool": {
+        "enabled": true,
+        "path": "auto",
+        "priority": 1,
+        "description": "Windows SDK signtool.exe"
+      },
+      "powershell": {
+        "enabled": true,
+        "priority": 2,
+        "description": "PowerShell Set-AuthenticodeSignature"
+      },
+      "osslsigncode": {
+        "enabled": true,
+        "path": "auto",
+        "priority": 3,
+        "description": "osslsigncode工具"
+      }
+    },
+
+    "file_paths": {
+      "search_patterns": [
+        "dist/*.exe",
+        "*.exe",
+        "build/*.exe"
+      ],
+      "exclude_patterns": [
+        "*.tmp.exe",
+        "*_unsigned.exe"
+      ],
+      "record_directory": "./signature_records"
+    },
+
+    "policies": {
+      "verify_before_sign": true,
+      "backup_before_sign": false,
+      "auto_retry": true,
+      "max_retries": 3,
+      "record_signing_history": true
+    },
+
+    "output": {
+      "verbose": true,
+      "save_records": true,
+      "record_format": "json",
+      "create_log_file": true
+    }
+  }
+}
