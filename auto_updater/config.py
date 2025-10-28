@@ -2,92 +2,36 @@
 """
 自动更新配置模块
 提供更新功能的全局配置和常量定义
-支持从外部配置文件读取项目特定信息
+使用内置配置常量，消除外部文件依赖
 集成版本管理功能，提供完整的配置和版本管理
 """
 
 import os
 import sys
-import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 from packaging import version
 
-# 默认配置（如果配置文件不存在时使用）
-DEFAULT_GITHUB_REPO = "your-username/your-repo"
-DEFAULT_GITHUB_API_BASE = "https://api.github.com"
-DEFAULT_UPDATE_CHECK_INTERVAL_DAYS = 30
-DEFAULT_MAX_BACKUP_COUNT = 3
-DEFAULT_DOWNLOAD_TIMEOUT = 300
-DEFAULT_APP_NAME = "your_app.exe"
-DEFAULT_BACKUP_DIR = "backup"
+# 导入配置常量
+from .config_constants import (
+    APP_NAME, APP_EXECUTABLE, GITHUB_OWNER, GITHUB_REPO, GITHUB_API_BASE,
+    CURRENT_VERSION, UPDATE_CHECK_INTERVAL_DAYS, AUTO_CHECK_ENABLED,
+    MAX_BACKUP_COUNT, DOWNLOAD_TIMEOUT, MAX_RETRIES, AUTO_RESTART,
+    REQUEST_HEADERS, DEFAULT_CONFIG, GITHUB_REPO_PATH,
+    GITHUB_RELEASES_URL, GITHUB_LATEST_RELEASE_URL
+)
 
-# 默认网络配置
-DEFAULT_REQUEST_HEADERS = {
-    "Accept": "application/vnd.github.v3+json",
-    "User-Agent": "App-Updater/1.0"
-}
-
-# 配置文件名
-UPDATER_CONFIG_FILE = "updater_config.json"
+# 配置文件名（保持兼容性）
 UPDATE_STATE_FILE = "update_state.json"
 DEFAULT_UPDATE_CONFIG_FILE = "update_config.json"  # 默认更新配置文件名
 
 class Config:
-    """配置管理类 - 从配置文件加载项目特定信息"""
+    """配置管理类 - 使用内置配置常量"""
 
     def __init__(self):
-        self._config = self._load_config()
+        self._config = DEFAULT_CONFIG.copy()  # 直接使用预定义的配置
         self._version_cache = {}  # 版本解析缓存
-
-    def _load_config(self) -> dict:
-        """加载配置文件"""
-        try:
-            # 手动获取可执行文件目录
-            if getattr(sys, 'frozen', False):
-                exec_dir = os.path.dirname(sys.executable)
-            else:
-                exec_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-            config_path = os.path.join(exec_dir, UPDATER_CONFIG_FILE)
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            else:
-                # 如果配置文件不存在，返回默认配置
-                return self._get_default_config()
-        except Exception as e:
-            print(f"加载配置文件失败: {e}，使用默认配置")
-            return self._get_default_config()
-
-    def _get_default_config(self) -> dict:
-        """获取默认配置"""
-        return {
-            "app": {
-                "name": "默认应用",
-                "executable": DEFAULT_APP_NAME
-            },
-            "repository": {
-                "owner": "your-username",
-                "repo": "your-repo",
-                "api_base": DEFAULT_GITHUB_API_BASE
-            },
-            "version": {
-                "current": "1.0.0",
-                "check_interval_days": DEFAULT_UPDATE_CHECK_INTERVAL_DAYS,
-                "auto_check_enabled": True
-            },
-            "update": {
-                "backup_count": DEFAULT_MAX_BACKUP_COUNT,
-                "download_timeout": DEFAULT_DOWNLOAD_TIMEOUT,
-                "max_retries": 3,
-                "auto_restart": True
-            },
-            "network": {
-                "request_headers": DEFAULT_REQUEST_HEADERS
-            }
-        }
 
     @property
     def github_repo(self) -> str:
@@ -98,7 +42,7 @@ class Config:
     @property
     def github_api_base(self) -> str:
         """GitHub API基础URL"""
-        return self._config.get("repository", {}).get("api_base", DEFAULT_GITHUB_API_BASE)
+        return self._config.get("repository", {}).get("api_base", GITHUB_API_BASE)
 
     @property
     def github_releases_url(self) -> str:
@@ -113,28 +57,28 @@ class Config:
     @property
     def update_check_interval_days(self) -> int:
         """更新检查间隔（天）"""
-        return self._config.get("version", {}).get("check_interval_days", DEFAULT_UPDATE_CHECK_INTERVAL_DAYS)
+        return self._config.get("version", {}).get("check_interval_days", UPDATE_CHECK_INTERVAL_DAYS)
 
     @property
     def max_backup_count(self) -> int:
         """最大备份数量"""
-        return self._config.get("update", {}).get("backup_count", DEFAULT_MAX_BACKUP_COUNT)
+        return self._config.get("update", {}).get("backup_count", MAX_BACKUP_COUNT)
 
     @property
     def download_timeout(self) -> int:
         """下载超时时间（秒）"""
-        return self._config.get("update", {}).get("download_timeout", DEFAULT_DOWNLOAD_TIMEOUT)
+        return self._config.get("update", {}).get("download_timeout", DOWNLOAD_TIMEOUT)
 
     @property
     def app_name(self) -> str:
         """应用可执行文件名"""
-        return self._config.get("app", {}).get("executable", DEFAULT_APP_NAME)
+        return self._config.get("app", {}).get("executable", APP_EXECUTABLE)
 
-    
+
     @property
     def request_headers(self) -> dict:
         """网络请求头"""
-        return self._config.get("network", {}).get("request_headers", DEFAULT_REQUEST_HEADERS)
+        return self._config.get("network", {}).get("request_headers", REQUEST_HEADERS)
 
     @property
     def current_version(self) -> str:
@@ -331,27 +275,27 @@ def _get_config_value(attr_name: str, default_value=None):
     except Exception:
         return default_value
 
-# GitHub配置
-GITHUB_REPO = _get_config_value('github_repo', DEFAULT_GITHUB_REPO)
-GITHUB_API_BASE = _get_config_value('github_api_base', DEFAULT_GITHUB_API_BASE)
-GITHUB_RELEASES_URL = _get_config_value('github_releases_url', f"{DEFAULT_GITHUB_API_BASE}/repos/{DEFAULT_GITHUB_REPO}/releases")
-GITHUB_LATEST_RELEASE_URL = _get_config_value('github_latest_release_url', f"{GITHUB_RELEASES_URL}/latest")
+# GitHub配置 - 直接使用配置常量
+GITHUB_REPO = GITHUB_REPO_PATH
+GITHUB_API_BASE = GITHUB_API_BASE
+GITHUB_RELEASES_URL = GITHUB_RELEASES_URL
+GITHUB_LATEST_RELEASE_URL = GITHUB_LATEST_RELEASE_URL
 
-# 更新配置
-UPDATE_CHECK_INTERVAL_DAYS = _get_config_value('update_check_interval_days', DEFAULT_UPDATE_CHECK_INTERVAL_DAYS)
-MAX_BACKUP_COUNT = _get_config_value('max_backup_count', DEFAULT_MAX_BACKUP_COUNT)
-DOWNLOAD_TIMEOUT = _get_config_value('download_timeout', DEFAULT_DOWNLOAD_TIMEOUT)
+# 更新配置 - 直接使用配置常量
+UPDATE_CHECK_INTERVAL_DAYS = UPDATE_CHECK_INTERVAL_DAYS
+MAX_BACKUP_COUNT = MAX_BACKUP_COUNT
+DOWNLOAD_TIMEOUT = DOWNLOAD_TIMEOUT
 
-# 文件配置
-APP_NAME = _get_config_value('app_name', DEFAULT_APP_NAME)
+# 文件配置 - 直接使用配置常量
+APP_NAME = APP_EXECUTABLE
 UPDATE_CONFIG_FILE = DEFAULT_UPDATE_CONFIG_FILE  # 保持向后兼容
-BACKUP_DIR = DEFAULT_BACKUP_DIR  # 保持向后兼容
+BACKUP_DIR = "backup"  # 保持向后兼容
 
-# 网络配置
-REQUEST_HEADERS = _get_config_value('request_headers', DEFAULT_REQUEST_HEADERS)
+# 网络配置 - 直接使用配置常量
+REQUEST_HEADERS = REQUEST_HEADERS
 
-# 版本配置
-CURRENT_VERSION = _get_config_value('current_version', "1.0.0")
+# 版本配置 - 直接使用配置常量
+CURRENT_VERSION = CURRENT_VERSION
 
 def get_executable_dir():
     """

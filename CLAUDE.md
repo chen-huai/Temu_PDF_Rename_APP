@@ -192,7 +192,7 @@ python test_update.py
 - **修改输出格式**: 调整generate_new_filename方法
 - **优化提取逻辑**: 改进_extract_开头的各个提取方法
 - **界面调整**: 使用Qt Designer修改.ui文件
-- **版本发布**: 更新updater_config.json，创建GitHub Release
+- **版本发布**: 更新config_constants.py，创建GitHub Release
 - **功能打包**: 运行打包工具.py，然后进行数字签名
 
 ## 核心业务流程
@@ -268,18 +268,16 @@ flowchart TD
 ### 分发包结构
 ```
 PDF重命名工具_便携版/
-├── PDF_Rename_Operation.exe  # 主程序（已签名）
-├── updater_config.json       # 更新配置
-├── version.txt              # 版本信息
+├── PDF_Rename_Operation.exe  # 主程序（已签名，配置已嵌入）
 └── 使用说明.txt              # 用户指南
 ```
 
 ### 版本发布流程
-1. 更新updater_config.json中的版本号
+1. 更新config_constants.py中的版本号
 2. 运行打包工具.py生成exe文件
 3. 运行PDF签名工具.py进行数字签名
 4. 创建GitHub Release并上传签名后的exe
-5. 更新版本更新清单.md文档
+5. 更新文档和版本发布记录
 
 ## 详细功能说明
 
@@ -310,10 +308,12 @@ PDF重命名工具_便携版/
 - 验证签名完整性和证书有效性
 
 ### 版本管理功能
-- 统一配置文件驱动的版本控制
+- **Python常量配置系统**：配置信息直接嵌入代码，消除外部文件依赖
+- 统一配置文件驱动的版本控制（通过config_constants.py）
 - 支持语义化版本号管理
 - GitHub Releases与本地版本同步
 - 版本更新历史记录和回滚支持
+- **配置安全**：用户无法修改核心配置，确保应用安全性
 
 ## 重要注意事项
 
@@ -330,7 +330,7 @@ PDF重命名工具_便携版/
 - 支持加密PDF的文本提取尝试
 - 生产环境发布必须进行数字签名
 - 自动更新功能需要正确的GitHub仓库配置
-- 版本信息统一通过updater_config.json管理
+- 版本信息统一通过config_constants.py中的Python常量管理
 
 ## 核心算法详解
 
