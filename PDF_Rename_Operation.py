@@ -1013,7 +1013,7 @@ class UpdateThread(QThread):
             self.status_signal.emit("正在安装更新...")
 
             # 执行更新
-            success, error = self.auto_updater.execute_update(download_path)
+            success, error = self.auto_updater.execute_update(download_path, self.version)
 
             if success:
                 self.finished_signal.emit(True, None)

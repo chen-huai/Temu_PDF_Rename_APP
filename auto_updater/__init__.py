@@ -122,19 +122,54 @@ class AutoUpdater:
         except Exception as e:
             return False, None, f"下载更新失败: {str(e)}"
 
-    def execute_update(self, update_file_path: str) -> tuple:
+    def execute_update(self, update_file_path: str, new_version: str) -> tuple:
         """
-        执行更新
-        :param update_file_path: 更新文件路径
-        :return: (是否成功, 错误信息)
+        执行应用程序更新操作
+
+        Args:
+            update_file_path (str): 下载的更新文件完整路径
+            new_version (str): 目标版本号，必须符合语义化版本格式 (如 "1.2.3")
+
+        Returns:
+            tuple[bool, Optional[str]]: (更新是否成功, 错误信息)
+
+        Raises:
+            ValueError: 当版本号格式无效时
+            UpdateExecutionError: 当更新执行过程中出现错误时
+
+        Note:
+            此方法会自动创建备份并执行文件替换操作
+            更新成功后会更新本地版本信息
         """
         try:
-            success = self.update_executor.execute_update(update_file_path)
+            # 参数验证
+            if not update_file_path or not update_file_path.strip():
+                return False, "更新文件路径不能为空"
+
+            if not new_version or not new_version.strip():
+                return False, "新版本号不能为空"
+
+            if not self._is_valid_version_format(new_version):
+                return False, f"版本号格式无效: {new_version}"
+
+            # 检查更新文件是否存在
+            import os
+            if not os.path.exists(update_file_path):
+                return False, f"更新文件不存在: {update_file_path}"
+
+            # 执行更新
+            success = self.update_executor.execute_update(update_file_path, new_version)
             if success:
                 return True, None
             else:
                 return False, "更新执行失败"
 
+        except UpdateExecutionError as e:
+            # 保留具体的执行错误信息
+            return False, f"更新执行失败: {str(e)}"
+        except ValueError as e:
+            # 参数验证错误处理
+            return False, f"参数验证失败: {str(e)}"
         except Exception as e:
             return False, f"执行更新异常: {str(e)}"
 
@@ -152,6 +187,23 @@ class AutoUpdater:
 
         except Exception as e:
             return False, f"回滚异常: {str(e)}"
+
+    def _is_valid_version_format(self, version: str) -> bool:
+        """
+        验证版本号格式是否有效
+
+        Args:
+            version (str): 版本号字符串
+
+        Returns:
+            bool: 版本号格式是否有效
+        """
+        try:
+            from packaging import version as pkg_version
+            pkg_version.parse(version)
+            return True
+        except Exception:
+            return False
 
 # 导出的公共接口
 __all__ = [
