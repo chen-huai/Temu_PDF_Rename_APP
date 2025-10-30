@@ -103,15 +103,29 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # 设置版本显示文本，格式为"版本：2.0.0"
             version_text = f"版本：{get_version()}"
 
-            # 显示版本信息在状态栏的永久区域
-            status_bar.showMessage(version_text)
+            # 创建版本标签
+            self.version_label = QLabel(version_text)
+            self.version_label.setStyleSheet("color: #666; font-size: 11px; padding: 2px;")
 
-            logger.info(f"状态栏初始化完成，显示: {version_text}")
+            # 添加版本标签到状态栏的永久区域（右侧）
+            status_bar.addPermanentWidget(self.version_label, 0)  # 0表示不拉伸
+
+            # 设置初始状态栏消息
+            status_bar.showMessage("就绪")
+
+            logger.info(f"状态栏初始化完成，永久显示: {version_text}")
 
         except Exception as e:
             logger.error(f"初始化状态栏失败: {e}")
-            # 如果初始化失败，至少确保状态栏存在
-            self.statusBar().showMessage("版本：未知")
+            # 如果初始化失败，至少确保状态栏存在并显示默认版本
+            try:
+                status_bar = self.statusBar()
+                self.version_label = QLabel("版本：未知")
+                self.version_label.setStyleSheet("color: #666; font-size: 11px; padding: 2px;")
+                status_bar.addPermanentWidget(self.version_label, 0)
+                status_bar.showMessage("就绪")
+            except Exception as fallback_e:
+                logger.error(f"状态栏初始化备用方案也失败: {fallback_e}")
 
     def select_files(self):
         """选择PDF文件"""
