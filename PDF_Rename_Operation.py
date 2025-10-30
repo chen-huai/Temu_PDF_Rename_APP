@@ -54,7 +54,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.setupUi(self)
         self.pdf_files = []
-        self.processor = PDFProcessor()
+
+        # 初始化PDFProcessor，使用默认配置
+        info_fields = "Sampling ID;Report No;结论"  # 默认字段配置
+        self.processor = PDFProcessor(info_fields=info_fields, enable_test_analysis=True)
 
         # 初始化更新器
         self.auto_updater = None
@@ -132,7 +135,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if reply != QMessageBox.Yes:
             return
 
-        # 设置测试方法
+        # 获取最新的GUI配置并更新处理器
+        gui_config = self._get_gui_config()
+        self.processor.update_config(
+            info_fields=gui_config['info_fields'],
+            original_naming_rule=gui_config['original_naming_rule'],
+            new_naming_rule=gui_config['new_naming_rule'],
+            test_methods_str=test_methods_str
+        )
+
+        # 设置测试方法（保持向后兼容）
         self.processor.set_test_methods(test_methods_str)
 
         # 禁用按钮
@@ -202,7 +214,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def process_single_file(self, pdf_path):
         """处理单个PDF文件"""
         try:
-            # 提取PDF信息
+            # 提取PDF信息（使用新的格式）
             info = self.processor.extract_pdf_info(pdf_path)
 
             if info['error']:
@@ -218,12 +230,75 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     'error': info['error']
                 }
 
-            # 生成新文件名
-            new_filename = self.processor.generate_new_filename(
-                info['sampling_id'],
-                info['report_no'],
-                info['final_conclusion']
-            )
+            # 从新的数据格式中提取字段值
+            extracted_info = info.get('extracted_info', {})
+            field_values = {}
+
+            # 提取所有字段的值
+            for field_name, field_data in extracted_info.items():
+                field_values[field_name] = field_data.get('value')
+
+            # 如果有最终结论但没有在字段中，添加到字段值中
+            if info.get('final_conclusion') and '结论' not in field_values:
+                field_values['结论'] = info['final_conclusion']
+
+            # 如果关键字段提取失败，尝试从原始文件名解析作为备用方案
+            if (not field_values.get('Report No') or field_values.get('Report No') == '无' or
+                not field_values.get('Sampling ID') or field_values.get('Sampling ID') == '无'):
+
+                logger.warning("检测到关键字段提取失败，尝试从文件名解析作为备用方案")
+                backup_fields = self.processor.parse_filename_backup(os.path.basename(pdf_path))
+
+                # 用文件名解析的结果填补缺失的字段
+                for field_name, backup_value in backup_fields.items():
+                    if not field_values.get(field_name) or field_values.get(field_name) == '无':
+                        field_values[field_name] = backup_value
+                        logger.info(f"从文件名备份解析填补字段 '{field_name}': {backup_value}")
+
+            logger.debug(f"最终字段值: {field_values}")
+
+            # 确保字段名一致性：添加"最终结论"字段，与GUI规则匹配
+            if '结论' in field_values and '最终结论' not in field_values:
+                field_values['最终结论'] = field_values['结论']
+                logger.debug(f"添加最终结论字段映射: {field_values['最终结论']}")
+
+            # 使用新的规则重排功能生成文件名
+            try:
+                # 获取GUI配置的新命名规则
+                new_naming_rule = self._get_gui_config().get('new_naming_rule', self.processor.new_naming_rule)
+
+                # 调试：详细记录传递给rearrange_fields_by_rule的参数
+                logger.info(f"=== 调试：文件名生成开始 ===")
+                logger.info(f"GUI配置的命名规则: '{new_naming_rule}'")
+                logger.info(f"传递给rearrange_fields_by_rule的field_values: {field_values}")
+                logger.info(f"field_values字典长度: {len(field_values)}")
+                logger.info(f"field_values所有键: {list(field_values.keys())}")
+
+                # 检查关键字段是否存在
+                for key in ['Sampling ID', 'Report No', '最终结论']:
+                    if key in field_values:
+                        logger.info(f"✓ 找到字段 '{key}': '{field_values[key]}'")
+                    else:
+                        logger.warning(f"✗ 未找到字段 '{key}'")
+                        # 检查相似字段名
+                        similar_keys = [k for k in field_values.keys() if key.lower() in k.lower() or k.lower() in key.lower()]
+                        if similar_keys:
+                            logger.warning(f"  找到相似字段名: {similar_keys}")
+
+                new_filename = self.processor.rearrange_fields_by_rule(
+                    new_naming_rule,
+                    field_values,
+                    ".pdf"  # 明确指定扩展名
+                )
+                logger.info(f"使用命名规则生成文件名: {new_naming_rule} -> {new_filename}")
+                logger.info(f"=== 调试：文件名生成结束 ===")
+            except Exception as e:
+                logger.error(f"使用新命名规则失败，回退到默认方法: {e}")
+                # 回退到默认方法
+                sampling_id = field_values.get('Sampling ID') or field_values.get('sampling_id') or 'UNKNOWN_SAMPLING_ID'
+                report_no = field_values.get('Report No') or field_values.get('report_no') or 'UNKNOWN_REPORT_NO'
+                final_conclusion = field_values.get('结论') or info.get('final_conclusion') or 'Fail'
+                new_filename = self.processor.generate_new_filename(sampling_id, report_no, final_conclusion)
 
             # 重命名文件
             old_path = pdf_path
@@ -249,13 +324,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 error_msg = str(e)
                 logger.error(f"重命名文件失败: {e}")
 
+            # 提取用于返回值的字段信息
+            sampling_id = field_values.get('Sampling ID') or field_values.get('sampling_id') or 'UNKNOWN_SAMPLING_ID'
+            report_no = field_values.get('Report No') or field_values.get('report_no') or 'UNKNOWN_REPORT_NO'
+            final_conclusion = field_values.get('结论') or info.get('final_conclusion') or 'Fail'
+
             return {
                 'original_name': os.path.basename(pdf_path),
                 'new_name': new_filename if rename_success else os.path.basename(pdf_path),
-                'sampling_id': info['sampling_id'],
-                'report_no': info['report_no'],
-                'test_results': info['test_results'],
-                'final_conclusion': info['final_conclusion'],
+                'sampling_id': sampling_id,
+                'report_no': report_no,
+                'test_results': info.get('test_results', {}),
+                'final_conclusion': final_conclusion,
                 'rename_success': rename_success,
                 'error': error_msg
             }
@@ -284,7 +364,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             QMessageBox.warning(self, "警告", "请输入测试方法，用分号分隔")
             return
 
-        # 设置测试方法
+        # 获取最新的GUI配置并更新处理器
+        gui_config = self._get_gui_config()
+        self.processor.update_config(
+            info_fields=gui_config['info_fields'],
+            original_naming_rule=gui_config['original_naming_rule'],
+            new_naming_rule=gui_config['new_naming_rule'],
+            test_methods_str=test_methods_str
+        )
+
+        # 设置测试方法（保持向后兼容）
         self.processor.set_test_methods(test_methods_str)
 
         # 清空信息显示
@@ -296,32 +385,70 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.textBrowser.append(f"测试文件: {os.path.basename(test_file)}\n")
 
         try:
-            # 提取PDF信息
+            # 提取PDF信息（使用新的格式）
             info = self.processor.extract_pdf_info(test_file)
 
             if info['error']:
                 self.textBrowser.append(f"ERROR: {info['error']}")
                 return
 
+            # 从新的数据格式中提取字段值
+            extracted_info = info.get('extracted_info', {})
+            field_values = {}
+
+            # 提取所有字段的值
+            for field_name, field_data in extracted_info.items():
+                field_values[field_name] = field_data.get('value')
+
+            # 如果有最终结论但没有在字段中，添加到字段值中
+            if info.get('final_conclusion') and '结论' not in field_values:
+                field_values['结论'] = info['final_conclusion']
+
+            # 确保字段名一致性：添加"最终结论"字段，与GUI规则匹配
+            if '结论' in field_values and '最终结论' not in field_values:
+                field_values['最终结论'] = field_values['结论']
+                logger.debug(f"测试模式添加最终结论字段映射: {field_values['最终结论']}")
+
+            # 生成新文件名（使用默认方法，保持向后兼容）
+            sampling_id = field_values.get('Sampling ID') or field_values.get('sampling_id') or 'UNKNOWN_SAMPLING_ID'
+            report_no = field_values.get('Report No') or field_values.get('report_no') or 'UNKNOWN_REPORT_NO'
+            final_conclusion = field_values.get('结论') or info.get('final_conclusion') or 'Fail'
+
             # 显示提取的信息
             result_info = f"\n=== 测试结果 ===\n"
             result_info += f"文件: {os.path.basename(test_file)}\n"
-            result_info += f"Sampling ID: {info['sampling_id']}\n"
-            result_info += f"Report No: {info['report_no']}\n"
+            result_info += f"Sampling ID: {sampling_id}\n"
+            result_info += f"Report No: {report_no}\n"
+
+            # 显示提取的字段信息
+            for field_name, field_data in extracted_info.items():
+                value = field_data.get('value')
+                source = field_data.get('source')
+                result_info += f"{field_name}: {value} (来源: {source})\n"
 
             # 显示每个测试方法的结果
-            for test_method, result in info['test_results'].items():
+            for test_method, result in info.get('test_results', {}).items():
                 result_info += f"测试方法 '{test_method}': {result}\n"
 
-            result_info += f"最终结论: {info['final_conclusion']}\n"
+            result_info += f"最终结论: {final_conclusion}\n"
 
-            # 生成新文件名但不实际重命名
-            new_filename = self.processor.generate_new_filename(
-                info['sampling_id'],
-                info['report_no'],
-                info['final_conclusion']
-            )
-            result_info += f"新文件名: {new_filename}\n"
+            # 使用新的规则重排功能生成文件名
+            try:
+                # 获取GUI配置的新命名规则（与重命名模式保持一致）
+                new_naming_rule = self._get_gui_config().get('new_naming_rule', self.processor.new_naming_rule)
+                new_filename = self.processor.rearrange_fields_by_rule(
+                    new_naming_rule,
+                    field_values,
+                    ".pdf"  # 明确指定扩展名
+                )
+                logger.info(f"测试模式使用新命名规则生成文件名: {new_naming_rule} -> {new_filename}")
+                result_info += f"使用新命名规则生成文件名: {new_filename}\n"
+            except Exception as e:
+                logger.error(f"测试模式使用新命名规则失败，回退到默认方法: {e}")
+                # 回退到默认方法
+                new_filename = self.processor.generate_new_filename(sampling_id, report_no, final_conclusion)
+                result_info += f"使用默认方法生成文件名: {new_filename}\n"
+
             result_info += "注意：测试模式，文件未实际重命名\n"
 
             self.textBrowser.append(result_info)
@@ -329,6 +456,186 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except Exception as e:
             logger.error(f"测试过程中出错: {e}")
             self.textBrowser.append(f"测试过程中出错: {e}")
+
+    def _get_gui_config(self) -> Dict[str, any]:
+        """
+        获取GUI字段配置并进行验证
+
+        Returns:
+            Dict[str, any]: 包含所有GUI配置的字典
+        """
+        try:
+            # 获取字段参数配置（lineEdit_3）
+            info_fields = self.lineEdit_3.text().strip() if self.lineEdit_3.text() else "Sampling ID;Report No;结论"
+
+            # 获取测试方法配置（lineEdit）
+            test_methods_str = self.lineEdit.text().strip()
+
+            # 获取原文件命名规则（lineEdit_2）
+            original_naming_rule = self.lineEdit_2.text().strip() if self.lineEdit_2.text() else "Sampling ID-Report No-结论"
+
+            # 获取新文件命名规则（lineEdit_4）- 优先使用用户设置
+            new_naming_rule = self.lineEdit_4.text().strip()
+            if not new_naming_rule:
+                new_naming_rule = "Sampling ID-结论-Report No"  # 更改默认顺序
+                logger.info("lineEdit_4为空，使用默认命名规则")
+            else:
+                logger.info(f"使用lineEdit_4设置的命名规则: {new_naming_rule}")
+
+            # 记录原始GUI值
+            logger.debug(f"GUI字段读取 - info_fields: {info_fields}")
+            logger.debug(f"GUI字段读取 - test_methods_str: {test_methods_str}")
+            logger.debug(f"GUI字段读取 - original_naming_rule: {original_naming_rule}")
+            logger.debug(f"GUI字段读取 - new_naming_rule: {new_naming_rule}")
+
+            # 基本配置验证（放宽验证条件）
+            if not info_fields.strip():
+                logger.warning("字段参数为空，使用默认值")
+                info_fields = "Sampling ID;Report No;结论"
+
+            if not test_methods_str.strip():
+                logger.warning("测试方法为空，使用默认值")
+                test_methods_str = "Total Lead Content Test;Total Cadmium Content Test;Nickel Release Test"
+
+            # 只进行基本验证，避免过度验证导致回退
+            validation_result = self._validate_config_basic(info_fields, test_methods_str, original_naming_rule, new_naming_rule)
+
+            if not validation_result['valid']:
+                error_msg = f"基本配置验证失败: {validation_result['error']}"
+                logger.error(error_msg)
+                QMessageBox.warning(self, "配置错误", error_msg)
+                # 只在基本验证失败时才回退
+                return self._get_default_config()
+
+            config = {
+                'info_fields': info_fields,
+                'test_methods_str': test_methods_str,
+                'original_naming_rule': original_naming_rule,
+                'new_naming_rule': new_naming_rule
+            }
+
+            logger.info(f"获取GUI配置成功: {config}")
+            return config
+
+        except Exception as e:
+            logger.error(f"获取GUI配置失败: {e}")
+            QMessageBox.critical(self, "配置错误", f"获取配置时发生错误：{str(e)}")
+            # 返回默认配置
+            return self._get_default_config()
+
+    def _validate_config_basic(self, info_fields: str, test_methods_str: str,
+                             original_rule: str, new_rule: str) -> Dict[str, any]:
+        """
+        基本配置参数验证（放宽验证条件）
+
+        Args:
+            info_fields: 字段参数字符串
+            test_methods_str: 测试方法字符串
+            original_rule: 原命名规则
+            new_rule: 新命名规则
+
+        Returns:
+            Dict[str, any]: 验证结果 {'valid': bool, 'error': str}
+        """
+        try:
+            # 只验证基本不为空
+            if not info_fields.strip():
+                return {'valid': False, 'error': '字段参数不能为空'}
+
+            if not test_methods_str.strip():
+                return {'valid': False, 'error': '测试方法不能为空'}
+
+            if not original_rule.strip():
+                return {'valid': False, 'error': '原文件命名规则不能为空'}
+
+            if not new_rule.strip():
+                return {'valid': False, 'error': '新文件命名规则不能为空'}
+
+            # 基本格式检查：规则中是否包含有效字符
+            if not any(char.isalnum() or char in '-；;；，,。.' for char in new_rule):
+                return {'valid': False, 'error': '新命名规则格式无效'}
+
+            return {'valid': True, 'error': ''}
+
+        except Exception as e:
+            return {'valid': False, 'error': f'配置验证异常: {str(e)}'}
+
+    def _validate_config(self, info_fields: str, test_methods_str: str,
+                        original_rule: str, new_rule: str) -> Dict[str, any]:
+        """
+        验证配置参数的有效性
+
+        Args:
+            info_fields: 字段参数字符串
+            test_methods_str: 测试方法字符串
+            original_rule: 原命名规则
+            new_rule: 新命名规则
+
+        Returns:
+            Dict[str, any]: 验证结果 {'valid': bool, 'error': str}
+        """
+        try:
+            # 验证字段参数
+            if not info_fields.strip():
+                return {'valid': False, 'error': '字段参数不能为空'}
+
+            # 验证测试方法
+            if not test_methods_str.strip():
+                return {'valid': False, 'error': '测试方法不能为空'}
+
+            # 验证原命名规则
+            if not original_rule.strip():
+                return {'valid': False, 'error': '原文件命名规则不能为空'}
+
+            # 验证新命名规则
+            if not new_rule.strip():
+                return {'valid': False, 'error': '新文件命名规则不能为空'}
+
+            # 验证命名规则格式（支持单字段规则）
+            # 如果规则中没有"-"，则当作单字段处理
+            # 单字段规则是有效的，不需要分隔符
+
+            # 验证字段参数与命名规则的兼容性
+            original_fields = [field.strip() for field in original_rule.split('-') if field.strip()]
+            new_fields = [field.strip() for field in new_rule.split('-') if field.strip()]
+            info_field_list = [field.strip() for field in info_fields.split(';') if field.strip()]
+
+            # 检查原规则中的字段是否都在字段参数中定义
+            missing_fields = []
+            for field in original_fields:
+                if field not in info_field_list:
+                    missing_fields.append(field)
+
+            if missing_fields:
+                return {'valid': False, 'error': f'原命名规则中的字段未在字段参数中定义: {", ".join(missing_fields)}'}
+
+            # 检查新规则中的字段是否都在字段参数中定义
+            missing_fields = []
+            for field in new_fields:
+                if field not in info_field_list:
+                    missing_fields.append(field)
+
+            if missing_fields:
+                return {'valid': False, 'error': f'新命名规则中的字段未在字段参数中定义: {", ".join(missing_fields)}'}
+
+            return {'valid': True, 'error': ''}
+
+        except Exception as e:
+            return {'valid': False, 'error': f'配置验证异常: {str(e)}'}
+
+    def _get_default_config(self) -> Dict[str, str]:
+        """
+        获取默认配置
+
+        Returns:
+            Dict[str, str]: 默认配置字典
+        """
+        return {
+            'info_fields': "Sampling ID;Report No;结论",
+            'test_methods_str': "Total Lead Content Test;Total Cadmium Content Test;Nickel Release Test",
+            'original_naming_rule': "Sampling ID-Report No-结论",
+            'new_naming_rule': "Sampling ID-结论-Report No"  # 更改为更通用的默认顺序
+        }
 
     def _get_output_directory(self) -> str:
         """获取Excel报告输出目录"""

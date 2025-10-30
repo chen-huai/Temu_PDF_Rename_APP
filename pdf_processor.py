@@ -18,101 +18,237 @@ logger = logging.getLogger(__name__)
 class PDFProcessor:
     """PDF处理类，负责提取PDF信息和重命名"""
 
-    def __init__(self):
+    def __init__(self, info_fields=None, enable_test_analysis=True):
+        """
+        初始化PDF处理器
+
+        Args:
+            info_fields (str, optional): 从GUI获取的信息字段配置，如"Sampling ID;Report No;结论"
+            enable_test_analysis (bool): 是否启用测试方法分析，默认为True
+        """
         self.test_methods = []
+        self.info_fields = info_fields or "Sampling ID;Report No"  # 默认字段
+        self.enable_test_analysis = enable_test_analysis
+
+        # 新增命名规则相关属性
+        self.original_naming_rule = "Sampling ID-Report No-结论"
+        self.new_naming_rule = "Report No-结论-Sampling ID"
+
+        # 解析信息字段列表
+        self.info_field_list = [field.strip() for field in self.info_fields.split(';') if field.strip()]
+        logger.info(f"PDFProcessor初始化完成，信息字段: {self.info_field_list}, 测试分析: {enable_test_analysis}")
+
+    def sanitize_filename(self, filename: str) -> str:
+        """
+        清理文件名，移除或替换Windows文件系统中的非法字符
+
+        Args:
+            filename (str): 原始文件名
+
+        Returns:
+            str: 清理后的合法文件名
+        """
+        # Windows文件名非法字符: < > : " | ? * \
+        illegal_chars = r'[<>:"|?*\\]'
+
+        # 将非法字符替换为下划线
+        sanitized = re.sub(illegal_chars, '_', filename)
+
+        # 移除多余的连续下划线和空格
+        sanitized = re.sub(r'[_\-]+', '_', sanitized)
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+
+        # 移除开头和结尾的空格、点、下划线
+        sanitized = sanitized.strip(' ._-')
+
+        logger.debug(f"文件名清理: '{filename}' -> '{sanitized}'")
+        return sanitized
+
+    def parse_filename_backup(self, filename: str) -> Dict[str, str]:
+        """
+        从文件名解析字段作为备用方案
+
+        Args:
+            filename (str): 原始文件名（不含扩展名）
+
+        Returns:
+            Dict[str, str]: 解析出的字段值
+        """
+        logger.debug(f"尝试从文件名解析字段: {filename}")
+
+        # 移除扩展名
+        name_without_ext = os.path.splitext(filename)[0]
+
+        # 尝试匹配常见格式: 66.441.25.17954.01-Pass-100534192
+        # 使用连字符分割
+        parts = name_without_ext.split('-')
+
+        field_values = {}
+
+        try:
+            if len(parts) >= 3:
+                # 格式可能是: Report No-结论-Sampling ID
+                potential_report_no = parts[0].strip()
+                potential_conclusion = parts[1].strip()
+                potential_sampling_id = parts[2].strip()
+
+                # 验证字段格式
+                if '.' in potential_report_no and potential_report_no.replace('.', '').replace('-', '').isdigit():
+                    field_values['Report No'] = potential_report_no
+                    logger.debug(f"从文件名解析出Report No: {potential_report_no}")
+
+                if potential_sampling_id.isdigit() or (potential_sampling_id.replace('.', '').replace('-', '').isdigit() and len(potential_sampling_id) > 6):
+                    field_values['Sampling ID'] = potential_sampling_id
+                    logger.debug(f"从文件名解析出Sampling ID: {potential_sampling_id}")
+
+                if potential_conclusion in ['Pass', 'Fail', 'pass', 'fail', '符合', '不符合', '合格', '不合格']:
+                    field_values['结论'] = potential_conclusion
+                    logger.debug(f"从文件名解析出结论: {potential_conclusion}")
+
+        except Exception as e:
+            logger.warning(f"从文件名解析字段失败: {e}")
+
+        return field_values
 
     def set_test_methods(self, methods_str: str):
         """设置测试方法列表"""
         self.test_methods = [method.strip() for method in methods_str.split(';') if method.strip()]
         logger.info(f"设置测试方法: {self.test_methods}")
 
+    def set_info_fields(self, info_fields_str: str):
+        """设置信息字段列表"""
+        self.info_fields = info_fields_str or "Sampling ID;Report No"
+        self.info_field_list = [field.strip() for field in self.info_fields.split(';') if field.strip()]
+        logger.info(f"设置信息字段: {self.info_field_list}")
+
+    def update_config(self, info_fields: str, original_naming_rule: str,
+                    new_naming_rule: str, test_methods_str: str):
+        """
+        更新处理器配置
+
+        Args:
+            info_fields (str): 信息字段配置
+            original_naming_rule (str): 原命名规则
+            new_naming_rule (str): 新命名规则
+            test_methods_str (str): 测试方法字符串
+        """
+        # 更新信息字段
+        self.set_info_fields(info_fields)
+
+        # 更新命名规则
+        self.original_naming_rule = original_naming_rule
+        self.new_naming_rule = new_naming_rule
+
+        # 更新测试方法
+        self.set_test_methods(test_methods_str)
+
+        logger.info(f"配置更新完成: 字段={info_fields}, 原规则={original_naming_rule}, 新规则={new_naming_rule}")
+        logger.info(f"测试方法: {self.test_methods}")
+
     def extract_pdf_info(self, pdf_path: str) -> Dict[str, any]:
-        """从PDF中提取信息：Sampling ID, Report No, 测试方法和结论"""
+        """
+        从PDF中提取信息，支持混合信息提取（PDF+文件名解析）
+
+        Args:
+            pdf_path (str): PDF文件路径
+
+        Returns:
+            Dict[str, any]: 包含所有提取信息的字典
+        """
         try:
             # 检查文件是否存在
             if not os.path.exists(pdf_path):
                 return {
-                    'sampling_id': None,
-                    'report_no': None,
+                    'extracted_info': {},
                     'test_results': {},
-                    'final_conclusion': 'Fail',
+                    'final_conclusion': None,
                     'error': f"文件不存在: {pdf_path}"
                 }
 
-            # 提取PDF文本内容
-            text = self._extract_pdf_text(pdf_path)
-            if not text:
-                return {
-                    'sampling_id': None,
-                    'report_no': None,
-                    'test_results': {},
-                    'final_conclusion': 'Fail',
-                    'error': "PDF文本为空，可能是扫描版PDF或受保护的PDF"
-                }
-
-            # 提取各项信息
-            sampling_id = self._extract_sampling_id(text)
-            report_no = self._extract_report_no(text)
-            test_results = self._extract_test_results(text)
-
-            # 判断最终结论 - 详细逻辑
-            logger.info(f"测试结果详情: {test_results}")
-
-            if not test_results:
-                # 如果没有找到任何测试结果
-                final_conclusion = '未找到结论'
-                logger.warning("未找到任何测试结果，默认为未找到结论")
-            else:
-                # 过滤掉未找到方法的测试结果，只考虑找到方法的
-                found_methods_results = {method: result for method, result in test_results.items()
-                                        if result != '未找到方法'}
-
-                logger.info(f"排除未找到方法后的结果: {found_methods_results}")
-
-                if not found_methods_results:
-                    # 如果所有方法都没找到
-                    final_conclusion = '未找到结论'
-                    logger.warning("所有测试方法都未找到，最终结论为未找到结论")
-                else:
-                    # 检查是否有未找到结论
-                    has_no_conclusion = any(result == '未找到结论' for result in found_methods_results.values())
-                    # 检查是否有Fail结果
-                    has_fail = any(result == 'Fail' for result in found_methods_results.values())
-                    # 检查是否所有结果都是Pass
-                    all_pass = all(result == 'Pass' for result in found_methods_results.values())
-
-                    if has_no_conclusion:
-                        final_conclusion = '未找到结论'
-                        logger.info("发现测试方法结果为未找到结论，最终结论为未找到结论")
-                    elif has_fail:
-                        final_conclusion = 'Fail'
-                        logger.info("发现测试方法结果为Fail，最终结论为Fail")
-                    elif all_pass:
-                        final_conclusion = 'Pass'
-                        logger.info("所有找到的测试方法结果都为Pass，最终结论为Pass")
-                    else:
-                        # 其他情况默认为未找到结论
-                        final_conclusion = '未找到结论'
-                        logger.warning("测试结果异常，默认为未找到结论")
-
-            logger.info(f"提取完成: Sampling ID={sampling_id}, Report No={report_no}, 最终结论={final_conclusion}")
-
-            return {
-                'sampling_id': sampling_id,
-                'report_no': report_no,
-                'test_results': test_results,
-                'final_conclusion': final_conclusion,
+            # 初始化结果字典
+            result = {
+                'extracted_info': {},
+                'test_results': {},
+                'final_conclusion': None,
                 'error': None
             }
+
+            # 第一步：尝试从PDF提取文本内容
+            pdf_text = self._extract_pdf_text(pdf_path)
+
+            # 第二步：根据配置的字段进行混合信息提取
+            filename = os.path.basename(pdf_path)
+            filename_info = self.parse_filename_info(filename)
+
+            logger.info(f"开始混合信息提取，PDF文本长度: {len(pdf_text) if pdf_text else 0}")
+            logger.info(f"文件名解析结果: {filename_info}")
+
+            # 对每个配置的字段进行提取
+            for field_name in self.info_field_list:
+                pdf_value = None
+                source = "未知"
+
+                if pdf_text:
+                    # 尝试从PDF提取
+                    if field_name == "Sampling ID":
+                        pdf_value = self._extract_sampling_id(pdf_text)
+                    elif field_name == "Report No":
+                        pdf_value = self._extract_report_no(pdf_text)
+                    elif field_name == "结论" and self.enable_test_analysis:
+                        # 结论字段需要特殊处理，从测试结果获取
+                        pass  # 稍后处理
+
+                # 如果PDF提取失败，尝试从文件名解析
+                if pdf_value:
+                    source = "PDF内容"
+                elif filename_info.get(field_name):
+                    pdf_value = filename_info[field_name]
+                    source = "文件名解析"
+                else:
+                    pdf_value = None
+                    source = "未找到"
+
+                result['extracted_info'][field_name] = {
+                    'value': pdf_value,
+                    'source': source
+                }
+
+                logger.info(f"字段 '{field_name}': {pdf_value} (来源: {source})")
+
+            # 第三步：处理测试方法分析（如果启用）
+            if self.enable_test_analysis and self.test_methods and pdf_text:
+                test_results = self._extract_test_results(pdf_text)
+                result['test_results'] = test_results
+
+                # 基于测试结果判断最终结论
+                final_conclusion = self._determine_final_conclusion_from_tests(test_results)
+
+                # 如果测试方法分析有结论，更新结论字段
+                if final_conclusion and final_conclusion not in ['未找到结论', '未找到方法', '未找到结果']:
+                    if '结论' in result['extracted_info']:
+                        result['extracted_info']['结论'] = {
+                            'value': final_conclusion,
+                            'source': '测试方法分析'
+                        }
+                    result['final_conclusion'] = final_conclusion
+                    logger.info(f"基于测试方法的最终结论: {final_conclusion}")
+            elif '结论' in result['extracted_info']:
+                # 如果没有启用测试分析，但有结论字段信息
+                conclusion_info = result['extracted_info']['结论']
+                if conclusion_info['value']:
+                    result['final_conclusion'] = conclusion_info['value']
+                    logger.info(f"使用提取的结论: {conclusion_info['value']} (来源: {conclusion_info['source']})")
+
+            logger.info("PDF信息提取完成")
+            return result
 
         except Exception as e:
             error_msg = self._handle_error(e)
             logger.error(f"处理PDF失败: {error_msg}")
             return {
-                'sampling_id': None,
-                'report_no': None,
+                'extracted_info': {},
                 'test_results': {},
-                'final_conclusion': 'Fail',
+                'final_conclusion': None,
                 'error': error_msg
             }
 
@@ -381,7 +517,242 @@ class PDFProcessor:
 
         return None
 
-  
+    def _determine_final_conclusion_from_tests(self, test_results: Dict[str, str]) -> Optional[str]:
+        """根据测试结果确定最终结论"""
+        if not test_results:
+            return None
+
+        logger.info(f"分析测试结果: {test_results}")
+
+        # 过滤掉未找到方法的测试结果
+        found_methods_results = {method: result for method, result in test_results.items()
+                                if result != '未找到方法'}
+
+        if not found_methods_results:
+            logger.warning("所有测试方法都未找到")
+            return None
+
+        # 检查是否有未找到结论
+        has_no_conclusion = any(result == '未找到结论' for result in found_methods_results.values())
+        # 检查是否有Fail结果
+        has_fail = any(result == 'Fail' for result in found_methods_results.values())
+        # 检查是否所有结果都是Pass
+        all_pass = all(result == 'Pass' for result in found_methods_results.values())
+
+        if has_no_conclusion:
+            logger.info("发现测试方法结果为未找到结论")
+            return '未找到结论'
+        elif has_fail:
+            logger.info("发现测试方法结果为Fail，最终结论为Fail")
+            return 'Fail'
+        elif all_pass:
+            logger.info("所有找到的测试方法结果都为Pass，最终结论为Pass")
+            return 'Pass'
+        else:
+            logger.warning("测试结果异常")
+            return '未找到结论'
+
+    def parse_filename_info(self, filename: str, rule: str = None) -> Dict[str, str]:
+        """
+        从文件名中解析信息
+
+        Args:
+            filename (str): 文件名（不含路径和扩展名）
+            rule (str, optional): 命名规则，如"Sampling ID-Report No-结论"
+
+        Returns:
+            Dict[str, str]: 解析出的字段信息
+        """
+        logger.info(f"开始解析文件名: {filename}, 规则: {rule}")
+
+        # 移除文件扩展名
+        if '.' in filename:
+            filename = filename[:filename.rfind('.')]
+
+        # 如果没有提供规则，使用默认字段列表
+        if not rule:
+            rule = "-".join(self.info_field_list)
+
+        # 按"-"分隔符分割规则
+        rule_fields = [field.strip() for field in rule.split('-') if field.strip()]
+
+        # 按"-"分隔符分割文件名
+        filename_parts = [part.strip() for part in filename.split('-') if part.strip()]
+
+        logger.info(f"规则字段: {rule_fields}")
+        logger.info(f"文件名分割结果: {filename_parts}")
+
+        result = {}
+
+        # 根据规则字段和文件名部分进行映射
+        for i, field_name in enumerate(rule_fields):
+            if i < len(filename_parts):
+                result[field_name] = filename_parts[i]
+                logger.debug(f"字段映射: {field_name} = {filename_parts[i]}")
+            else:
+                result[field_name] = "无"
+                logger.warning(f"字段 {field_name} 在文件名中未找到对应部分")
+
+        # 特殊处理：如果规则包含结论但未解析到，尝试从文件名中查找结论关键词
+        if '结论' in rule_fields and (not result.get('结论') or result['结论'] == '无'):
+            conclusion = self._extract_conclusion_from_filename(filename)
+            if conclusion:
+                result['结论'] = conclusion
+                logger.info(f"从文件名中提取到结论: {conclusion}")
+
+        logger.info(f"文件名解析完成: {result}")
+        return result
+
+    def _extract_conclusion_from_filename(self, filename: str) -> Optional[str]:
+        """从文件名中提取结论"""
+        filename_lower = filename.lower()
+
+        # 检查Fail关键词
+        fail_keywords = ['fail', 'ng', '不合格', '不符合', '不通过', 'fail']
+        for keyword in fail_keywords:
+            if keyword in filename_lower:
+                return 'Fail'
+
+        # 检查Pass关键词
+        pass_keywords = ['pass', 'ok', '合格', '符合', '通过', 'compliant']
+        for keyword in pass_keywords:
+            if keyword in filename_lower:
+                return 'Pass'
+
+        return None
+
+    def rearrange_fields_by_rule(self, rule: str, field_values: Dict[str, str], extension: str = ".pdf") -> str:
+        """
+        根据规则重排字段值，生成文件名
+
+        Args:
+            rule (str): 字段排列规则，如"Report No-结论-Sampling ID"
+            field_values (Dict[str, str]): 字段值映射
+            extension (str): 文件扩展名，默认为".pdf"
+
+        Returns:
+            str: 重排后的文件名（包含扩展名）
+        """
+        try:
+            logger.info(f"=== rearrange_fields_by_rule 调试开始 ===")
+            logger.info(f"接收到的规则: '{rule}'")
+            logger.info(f"接收到的扩展名: '{extension}'")
+            logger.info(f"接收到的field_values: {field_values}")
+            logger.info(f"field_values字典长度: {len(field_values)}")
+            logger.info(f"field_values所有键: {list(field_values.keys())}")
+
+            # 检查关键字段是否存在
+            for key in ['Sampling ID', 'Report No', '最终结论']:
+                if key in field_values:
+                    logger.info(f"✓ rearrange_fields找到字段 '{key}': '{field_values[key]}'")
+                else:
+                    logger.warning(f"✗ rearrange_fields未找到字段 '{key}'")
+                    # 检查相似字段名
+                    similar_keys = [k for k in field_values.keys() if key.lower() in k.lower() or k.lower() in key.lower()]
+                    if similar_keys:
+                        logger.warning(f"  找到相似字段名: {similar_keys}")
+
+            logger.debug(f"字段重排开始: 规则='{rule}', 扩展名='{extension}'")
+            logger.debug(f"可用字段值: {field_values}")
+
+            if not rule:
+                logger.warning("规则为空，使用默认文件名")
+                return "RENAMED_FILE"
+
+            # 处理单字段情况（没有"-"分隔符）
+            if '-' not in rule:
+                single_field = rule.strip()
+                logger.debug(f"检测到单字段规则: '{single_field}'")
+                result = self._validate_field_value(single_field, field_values)
+                if result.startswith("UNKNOWN_"):
+                    logger.warning(f"单字段 '{single_field}' 值为空，使用占位符: {result}")
+
+                # 确保添加扩展名
+                if extension and not result.lower().endswith(extension.lower()):
+                    result += extension
+
+                logger.info(f"单字段重排结果: {result}")
+                return result
+
+            # 按"-"分隔符分割规则
+            rule_fields = [field.strip() for field in rule.split('-') if field.strip()]
+
+            logger.debug(f"解析后的规则字段列表: {rule_fields}")
+
+            # 根据规则重排字段
+            filename_parts = []
+            for i, field_name in enumerate(rule_fields):
+                logger.debug(f"处理字段 {i+1}/{len(rule_fields)}: '{field_name}'")
+
+                value = self._validate_field_value(field_name, field_values)
+                filename_parts.append(value)
+
+                if value.startswith("UNKNOWN_"):
+                    logger.warning(f"字段 '{field_name}' 值为空，使用占位符: {value}")
+                    # 尝试查找相似字段名
+                    available_fields = list(field_values.keys())
+                    similar_fields = [f for f in available_fields if field_name.lower() in f.lower() or f.lower() in field_name.lower()]
+                    if similar_fields:
+                        logger.warning(f"发现相似字段名: {similar_fields}")
+                else:
+                    logger.debug(f"字段 '{field_name}' 成功添加到文件名: '{value}'")
+
+            # 用"-"连接各部分
+            new_filename = "-".join(filename_parts)
+
+            # 清理文件名，移除Windows非法字符
+            new_filename = self.sanitize_filename(new_filename)
+
+            # 确保添加扩展名
+            if extension and not new_filename.lower().endswith(extension.lower()):
+                new_filename += extension
+
+            logger.info(f"字段重排完成: '{rule}' -> '{new_filename}'")
+            return new_filename
+
+        except Exception as e:
+            logger.error(f"重排字段失败: {e}")
+            logger.error(f"错误详情: 规则='{rule}', 字段值={field_values}")
+            return "ERROR_RENAME"
+
+    def _validate_field_value(self, field_name: str, field_values: Dict[str, str]) -> str:
+        """
+        验证字段值并返回有效值或占位符
+
+        Args:
+            field_name (str): 字段名称
+            field_values (Dict[str, str]): 字段值字典
+
+        Returns:
+            str: 有效字段值或占位符
+        """
+        logger.debug(f"验证字段: '{field_name}', 可用字段: {list(field_values.keys())}")
+
+        # 直接查找
+        value = field_values.get(field_name)
+        if value and value != "无":
+            logger.debug(f"直接匹配成功: '{field_name}' = '{value}'")
+            return value
+
+        # 尝试大小写不敏感匹配
+        for key, val in field_values.items():
+            if key.lower() == field_name.lower() and val and val != "无":
+                logger.debug(f"大小写不敏感匹配: '{field_name}' -> '{key}' = '{val}'")
+                return val
+
+        # 尝试包含匹配
+        for key, val in field_values.items():
+            if field_name.lower() in key.lower() or key.lower() in field_name.lower():
+                if val and val != "无":
+                    logger.debug(f"包含匹配成功: '{field_name}' -> '{key}' = '{val}'")
+                    return val
+
+        logger.warning(f"字段 '{field_name}' 匹配失败，使用占位符")
+
+        # 预计算占位符字段名，避免重复字符串操作
+        placeholder_name = field_name.replace(' ', '_').upper()
+        return f"UNKNOWN_{placeholder_name}"
+
     def generate_new_filename(self, sampling_id: str, report_no: str, final_conclusion: str) -> str:
         """生成新文件名：Sampling ID-Report No-最终结论.pdf"""
         if not sampling_id:
