@@ -85,15 +85,34 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 输出目录将根据用户选择的文件动态确定
         self.output_dir = None
 
+        # 初始化状态栏并显示版本信息
+        self.init_status_bar()
+
         # 启动时检查更新（如果在生产环境）
         if self.auto_updater and getattr(sys, 'frozen', False):
             self.schedule_startup_update_check()
 
         logger.info("主窗口初始化完成")
 
-    
-    
-    
+    def init_status_bar(self):
+        """初始化状态栏并显示版本信息"""
+        try:
+            # 获取状态栏
+            status_bar = self.statusBar()
+
+            # 设置版本显示文本，格式为"版本：2.0.0"
+            version_text = f"版本：{get_version()}"
+
+            # 显示版本信息在状态栏的永久区域
+            status_bar.showMessage(version_text)
+
+            logger.info(f"状态栏初始化完成，显示: {version_text}")
+
+        except Exception as e:
+            logger.error(f"初始化状态栏失败: {e}")
+            # 如果初始化失败，至少确保状态栏存在
+            self.statusBar().showMessage("版本：未知")
+
     def select_files(self):
         """选择PDF文件"""
         default_dir = r"N:\XM Softlines\6. Personel\6. Daily Priority Testing List"
