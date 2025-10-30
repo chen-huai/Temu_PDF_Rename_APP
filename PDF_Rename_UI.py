@@ -130,7 +130,7 @@ class Ui_MainWindow(object):
         self.pushButton.setText(_translate("MainWindow", "测试方法"))
         self.lineEdit.setText(_translate("MainWindow", "Total Lead Content Test;Total Cadmium Content Test;Nickel Release Test"))
         self.pushButton_5.setText(_translate("MainWindow", "新文件名称"))
-        self.lineEdit_4.setText(_translate("MainWindow", "Sampling ID:-Report No.-pass/fail"))
+        self.lineEdit_4.setText(_translate("MainWindow", "Sampling ID:-Report No.-最终结论"))
         self.pushButton_2.setText(_translate("MainWindow", "选择文件"))
         self.pushButton_3.setText(_translate("MainWindow", "重命名"))
         self.groupBox_2.setTitle(_translate("MainWindow", "信息"))
