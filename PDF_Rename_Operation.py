@@ -747,6 +747,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     )
                     if reply == QMessageBox.Yes:
                         self.start_update_process()
+                    elif reply == QMessageBox.No:
+                        logger.info("用户选择暂时不更新")
                 elif error:
                     logger.warning(f"启动更新检查失败: {error}")
         except Exception as e:
@@ -779,6 +781,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 )
                 if reply == QMessageBox.Yes:
                     self.start_update_process(remote_version)
+                elif reply == QMessageBox.No:
+                    self.textBrowser.append("暂时不更新")
             else:
                 QMessageBox.information(self, "检查更新", "您的软件已是最新版本！")
                 self.textBrowser.append("您的软件已是最新版本")
@@ -1007,7 +1011,7 @@ class UpdateThread(QThread):
     """更新线程"""
     progress_signal = pyqtSignal(int, int, int)  # downloaded, total, percentage
     status_signal = pyqtSignal(str)  # 状态信息
-    finished_signal = pyqtSignal(bool, str)  # 是否成功, 错误信息
+    finished_signal = pyqtSignal(bool, str, str)  # 是否成功, 错误信息, 下载路径
 
     def __init__(self, auto_updater, version):
         super().__init__()
@@ -1026,7 +1030,7 @@ class UpdateThread(QThread):
             )
 
             if not success:
-                self.finished_signal.emit(False, f"下载失败: {error}")
+                self.finished_signal.emit(False, f"下载失败: {error}", None)
                 return
 
             self.status_signal.emit("正在安装更新...")
@@ -1035,12 +1039,12 @@ class UpdateThread(QThread):
             success, error = self.auto_updater.execute_update(download_path, self.version)
 
             if success:
-                self.finished_signal.emit(True, None)
+                self.finished_signal.emit(True, None, download_path)
             else:
-                self.finished_signal.emit(False, f"安装失败: {error}")
+                self.finished_signal.emit(False, f"安装失败: {error}", download_path)
 
         except Exception as e:
-            self.finished_signal.emit(False, f"更新过程异常: {str(e)}")
+            self.finished_signal.emit(False, f"更新过程异常: {str(e)}", None)
 
     def progress_callback(self, downloaded, total, percentage):
         """进度回调"""
@@ -1112,11 +1116,15 @@ class UpdateProgressDialog(QDialog):
         """更新状态"""
         self.status_label.setText(status)
 
-    def update_finished(self, success, error):
+    def update_finished(self, success, error, download_path):
         """更新完成"""
         if success:
             self.status_label.setText("更新完成！应用程序将重启...")
             self.progress_bar.setValue(100)
+
+            # 显示下载路径信息
+            if download_path:
+                QMessageBox.information(self, "更新完成", f"文件已下载到：\n{download_path}")
 
             # 2秒后关闭对话框并重启应用
             QTimer.singleShot(2000, self.restart_application)
