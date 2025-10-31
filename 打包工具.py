@@ -2,6 +2,7 @@
 """
 PDF重命名工具打包脚本
 双击运行即可打包成exe文件，支持代码签名
+集成新的 code_signer 模块进行签名
 """
 import os
 import sys
@@ -10,6 +11,14 @@ import shutil
 import json
 import time
 from pathlib import Path
+
+# 导入新的签名模块
+try:
+    from code_signer import CodeSigner
+    NEW_SIGNER_AVAILABLE = True
+except ImportError:
+    NEW_SIGNER_AVAILABLE = False
+    print("[信息] 新的签名模块不可用，将使用传统签名方式")
 
 def install_missing_packages():
     """安装缺少的包"""
@@ -338,6 +347,94 @@ def sign_exe_file(exe_path, certificate_path="170859-code-signing.cer"):
         print(f"创建签名信息文件失败: {e}")
         return False, "签名失败"
 
+def sign_exe_file_with_new_module(exe_path, config_path="code_signer/examples/project_config.py"):
+    """使用新的签名模块进行代码签名"""
+    if not NEW_SIGNER_AVAILABLE:
+        print("[错误] 新的签名模块不可用")
+        return False, "新签名模块不可用"
+
+    print("[信息] 使用新的 code_signer 模块进行签名")
+
+    try:
+        # 尝试加载配置文件
+        config_files = [
+            "code_signer/examples/project_config.py",
+            "signing_config.py"
+        ]
+
+        signer = None
+        used_config = None
+
+        for config_file in config_files:
+            if os.path.exists(config_file):
+                try:
+                    print(f"[信息] 使用配置文件: {config_file}")
+                    signer = CodeSigner.from_config(config_file)
+                    used_config = config_file
+                    break
+                except Exception as e:
+                    print(f"[警告] 配置文件 {config_file} 加载失败: {e}")
+                    continue
+
+        if signer is None:
+            print("[信息] 使用默认配置")
+            signer = CodeSigner()
+            used_config = "默认配置"
+
+        # 显示使用的配置信息
+        print(f"[成功] 签名器初始化成功，使用配置: {used_config}")
+
+        # 检查文件是否存在
+        if not os.path.exists(exe_path):
+            return False, f"文件不存在: {exe_path}"
+
+        # 显示证书信息
+        try:
+            signer.display_certificate_info()
+        except Exception as e:
+            print(f"[警告] 显示证书信息失败: {e}")
+
+        # 执行签名
+        success, message = signer.sign_file(exe_path)
+
+        if success:
+            print(f"[成功] 新模块签名完成: {message}")
+            return True, f"新模块签名: {message}"
+        else:
+            print(f"[失败] 新模块签名失败: {message}")
+            return False, f"新模块签名失败: {message}"
+
+    except Exception as e:
+        error_msg = f"新模块签名异常: {e}"
+        print(f"[错误] {error_msg}")
+        return False, error_msg
+
+def sign_exe_file_unified(exe_path):
+    """统一的签名函数，优先使用新模块，回退到传统方式"""
+    print("\n" + "=" * 50)
+    print("开始数字签名流程")
+    print("=" * 50)
+
+    # 首先尝试使用新模块
+    if NEW_SIGNER_AVAILABLE:
+        print("[优先] 尝试使用新的 code_signer 模块")
+        success, message = sign_exe_file_with_new_module(exe_path)
+        if success:
+            return success, message
+        else:
+            print(f"[回退] 新模块签名失败，尝试传统方式: {message}")
+    else:
+        print("[信息] 新签名模块不可用，使用传统签名方式")
+
+    # 回退到传统签名方式
+    certificate_path = "170859-code-signing.cer"
+    if os.path.exists(certificate_path):
+        print("[传统] 使用传统证书文件签名")
+        return sign_exe_file(exe_path, certificate_path)
+    else:
+        print("[错误] 未找到证书文件，无法进行传统签名")
+        return False, "未找到签名证书"
+
 def create_portable_package():
     """创建便携包"""
     print("创建便携包...")
@@ -427,28 +524,33 @@ def main():
     exe_path = "dist/PDF_Rename_Operation.exe"
     signature_status = ""
 
-    # 代码签名（如果有证书）
-    if certificate_path and has_certificate:
-        print("\n" + "=" * 40)
-        print("开始数字签名流程")
-        print("=" * 40)
+    # 代码签名（优先使用新模块）
+    print("\n" + "=" * 40)
+    print("数字签名检查")
+    print("=" * 40)
 
-        # 询问是否进行签名
-        try:
-            sign_choice = input("是否进行代码签名? (y/n): ").strip().lower()
-            if sign_choice in ['y', 'yes', '是', '']:
-                success, message = sign_exe_file(exe_path, certificate_path)
-                if success:
-                    signature_status = f" (已签名: {message})"
-                    print(f"[OK] 代码签名完成: {message}")
-                else:
-                    signature_status = f" (签名失败: {message})"
-                    print(f"[ERROR] 代码签名失败: {message}")
-                    print("提示: 您可以稍后手动进行签名")
+    if NEW_SIGNER_AVAILABLE:
+        print("[信息] 检测到新的 code_signer 模块，将优先使用")
+        print("[信息] 支持多种配置方式: Python配置文件、JSON配置文件回退")
+    else:
+        print("[信息] 将使用传统签名方式")
+
+    # 询问是否进行签名
+    try:
+        sign_choice = input("是否进行代码签名? (y/n): ").strip().lower()
+        if sign_choice in ['y', 'yes', '是', '']:
+            success, message = sign_exe_file_unified(exe_path)
+            if success:
+                signature_status = f" (已签名: {message})"
+                print(f"[OK] 代码签名完成: {message}")
             else:
-                print("跳过代码签名")
-        except:
+                signature_status = f" (签名失败: {message})"
+                print(f"[ERROR] 代码签名失败: {message}")
+                print("提示: 您可以稍后手动进行签名")
+        else:
             print("跳过代码签名")
+    except:
+        print("跳过代码签名")
 
     # 创建便携包（包含签名后的文件）
     if not create_portable_package():
