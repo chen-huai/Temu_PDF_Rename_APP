@@ -34,8 +34,16 @@ class PDFProcessor:
         self.original_naming_rule = "Sampling ID-Report No-结论"
         self.new_naming_rule = "Report No-结论-Sampling ID"
 
+        # 预编译常用正则表达式模式（性能优化）
+        self._report_no_patterns = [
+            re.compile(r'Report\s*No\.?\s*:\s*(.+)', re.IGNORECASE),
+            re.compile(r'Report\s*Number\s*:\s*(.+)', re.IGNORECASE)
+        ]
+        self._field_pattern_cache = {}  # 缓存字段模式
+        self._valid_config_pattern = re.compile(r'^[a-zA-Z0-9\s\u4e00-\u9fa5:;_\-\.]+$')
+
         # 解析信息字段列表
-        self.info_field_list = [field.strip() for field in self.info_fields.split(';') if field.strip()]
+        self.info_field_list = self.parse_field_config(self.info_fields)
         logger.info(f"PDFProcessor初始化完成，信息字段: {self.info_field_list}, 测试分析: {enable_test_analysis}")
 
     def sanitize_filename(self, filename: str) -> str:
@@ -54,8 +62,8 @@ class PDFProcessor:
         # 将非法字符替换为下划线
         sanitized = re.sub(illegal_chars, '_', filename)
 
-        # 移除多余的连续下划线和空格
-        sanitized = re.sub(r'[_\-]+', '_', sanitized)
+        # 只移除多余的连续下划线，保留连字符（用于字段分隔）
+        sanitized = re.sub(r'_{2,}', '_', sanitized)
         sanitized = re.sub(r'\s+', ' ', sanitized)
 
         # 移除开头和结尾的空格、点、下划线
@@ -118,32 +126,154 @@ class PDFProcessor:
     def set_info_fields(self, info_fields_str: str):
         """设置信息字段列表"""
         self.info_fields = info_fields_str or "Sampling ID;Report No"
-        self.info_field_list = [field.strip() for field in self.info_fields.split(';') if field.strip()]
+        self.info_field_list = self.parse_field_config(self.info_fields)
         logger.info(f"设置信息字段: {self.info_field_list}")
+
+    def parse_field_config(self, config_str: str) -> List[str]:
+        """
+        解析字段配置字符串，支持带冒号和不带冒号的格式
+
+        Args:
+            config_str (str): 配置字符串，如"Sampling ID:;Report No:"或"Sampling ID;Report No;"
+
+        Returns:
+            List[str]: 标准化后的字段名列表
+        """
+        if not config_str:
+            return ["Sampling ID", "Report No"]
+
+        # 验证配置格式
+        validation_result = self.validate_field_config(config_str)
+        if not validation_result['is_valid']:
+            logger.warning(f"字段配置格式有误: {validation_result['error']}")
+            # 使用默认配置
+            return ["Sampling ID", "Report No"]
+
+        fields = []
+        for field in config_str.split(';'):
+            field = field.strip()
+            if not field:
+                continue
+
+            # 移除末尾的冒号，统一标准化字段名
+            if field.endswith(':'):
+                field = field[:-1].strip()
+
+            if field:
+                fields.append(field)
+
+        logger.debug(f"解析字段配置: '{config_str}' -> {fields}")
+        return fields if fields else ["Sampling ID", "Report No"]
+
+    def validate_field_config(self, config_str: str) -> Dict[str, any]:
+        """
+        验证字段配置字符串的格式（优化版本）
+
+        Args:
+            config_str (str): 配置字符串
+
+        Returns:
+            Dict[str, any]: 验证结果，包含is_valid和error信息
+        """
+        if not config_str or not config_str.strip():
+            return {'is_valid': True, 'error': None}
+
+        # 使用预编译的正则表达式进行字符验证
+        if not self._valid_config_pattern.match(config_str):
+            return {
+                'is_valid': False,
+                'error': "配置字符串包含无效字符，只允许字母、数字、中文、空格、冒号、分号、下划线、横线和点号"
+            }
+
+        # 合并字符和长度验证，提高效率
+        fields = [f.strip().rstrip(':') for f in config_str.split(';') if f.strip()]
+
+        # 批量验证字段长度
+        invalid_fields = [f for f in fields if len(f) > 50 or len(f) < 2]
+        if invalid_fields:
+            field_info = ', '.join([f"'{f}'(长度:{len(f)})" for f in invalid_fields[:2]])  # 只显示前两个错误字段
+            return {
+                'is_valid': False,
+                'error': f"字段长度不符合要求(2-50字符): {field_info}..."
+            }
+
+        return {'is_valid': True, 'error': None}
 
     def update_config(self, info_fields: str, original_naming_rule: str,
                     new_naming_rule: str, test_methods_str: str):
         """
-        更新处理器配置
+        更新处理器配置（优化版本：提供更详细的错误信息和建议）
 
         Args:
             info_fields (str): 信息字段配置
             original_naming_rule (str): 原命名规则
             new_naming_rule (str): 新命名规则
             test_methods_str (str): 测试方法字符串
-        """
-        # 更新信息字段
-        self.set_info_fields(info_fields)
 
-        # 更新命名规则
-        self.original_naming_rule = original_naming_rule
-        self.new_naming_rule = new_naming_rule
+        Returns:
+            Dict[str, any]: 更新结果，包含success、errors和warnings信息
+        """
+        result = {'success': True, 'errors': [], 'warnings': []}
+
+        # 验证并更新信息字段
+        if not info_fields or not info_fields.strip():
+            self.set_info_fields("")  # 使用默认值
+            result['warnings'].append("信息字段为空，已使用默认配置 'Sampling ID;Report No'")
+            logger.info("信息字段为空，使用默认配置")
+        else:
+            validation_result = self.validate_field_config(info_fields)
+            if validation_result['is_valid']:
+                self.set_info_fields(info_fields)
+                logger.info(f"信息字段更新成功: {self.info_field_list}")
+            else:
+                suggestion = self._get_config_suggestion(validation_result['error'])
+                result['success'] = False
+                result['errors'].append(f"信息字段配置错误: {validation_result['error']}\n建议：{suggestion}")
+                logger.error(f"信息字段配置错误: {validation_result['error']}")
+
+        # 更新命名规则（增强验证）
+        if original_naming_rule and new_naming_rule:
+            self.original_naming_rule = original_naming_rule
+            self.new_naming_rule = new_naming_rule
+            logger.info(f"命名规则更新成功: 原规则={original_naming_rule}, 新规则={new_naming_rule}")
+        else:
+            result['success'] = False
+            result['errors'].append("命名规则不能为空，请提供原命名规则和新命名规则")
 
         # 更新测试方法
-        self.set_test_methods(test_methods_str)
+        if test_methods_str and test_methods_str.strip():
+            self.set_test_methods(test_methods_str)
+            logger.info(f"测试方法更新成功: {self.test_methods}")
+        else:
+            result['warnings'].append("测试方法为空，将禁用测试分析功能")
+            logger.warning("测试方法为空，将禁用测试分析功能")
 
-        logger.info(f"配置更新完成: 字段={info_fields}, 原规则={original_naming_rule}, 新规则={new_naming_rule}")
-        logger.info(f"测试方法: {self.test_methods}")
+        # 记录最终状态
+        if result['success']:
+            logger.info("配置更新完成")
+        else:
+            logger.error(f"配置更新失败: {result['errors']}")
+
+        return result
+
+    def _get_config_suggestion(self, error_msg: str) -> str:
+        """
+        根据错误信息提供配置建议
+
+        Args:
+            error_msg (str): 错误信息
+
+        Returns:
+            str: 配置建议
+        """
+        if "无效字符" in error_msg:
+            return "请使用以下格式：'Sampling ID:;Report No;' 或 'Product Name;Batch No;Expiry Date'"
+        elif "字段长度" in error_msg:
+            return "字段名长度应在2-50字符之间，例如：'Sampling ID' 或 'Report No'"
+        elif "命名规则不能为空" in error_msg:
+            return "请提供完整的命名规则，例如：'Sampling ID-Report No-结论'"
+        else:
+            return "请参考默认配置格式：'Sampling ID;Report No;结论'"
 
     def extract_pdf_info(self, pdf_path: str) -> Dict[str, any]:
         """
@@ -189,14 +319,13 @@ class PDFProcessor:
                 source = "未知"
 
                 if pdf_text:
-                    # 尝试从PDF提取
-                    if field_name == "Sampling ID":
-                        pdf_value = self._extract_sampling_id(pdf_text)
-                    elif field_name == "Report No":
-                        pdf_value = self._extract_report_no(pdf_text)
-                    elif field_name == "结论" and self.enable_test_analysis:
+                    # 使用通用字段提取方法
+                    if field_name == "结论" and self.enable_test_analysis:
                         # 结论字段需要特殊处理，从测试结果获取
                         pass  # 稍后处理
+                    else:
+                        # 使用动态字段提取方法
+                        pdf_value = self._extract_field_by_keyword(pdf_text, field_name)
 
                 # 如果PDF提取失败，尝试从文件名解析
                 if pdf_value:
@@ -384,6 +513,103 @@ class PDFProcessor:
 
         logger.warning("未找到Report No")
         return None
+
+    def _extract_field_by_keyword(self, text: str, field_name: str) -> Optional[str]:
+        """
+        通用字段提取方法，根据字段名动态提取PDF内容（优化版本）
+
+        Args:
+            text (str): PDF文本内容
+            field_name (str): 要提取的字段名，如"Sampling ID"、"Report No"等
+
+        Returns:
+            Optional[str]: 提取到的字段值，未找到则返回None
+        """
+        logger.debug(f"开始提取字段 '{field_name}'")
+        lines = text.split('\n')
+
+        # 获取或创建字段模式（使用缓存优化性能）
+        patterns = self._get_field_patterns(field_name)
+
+        for line_num, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+
+            # 尝试所有模式
+            for pattern in patterns:
+                if pattern.search(line):
+                    logger.debug(f"找到字段 '{field_name}' 在行 {line_num}: '{line}'")
+
+                    # 提取匹配的值
+                    match = pattern.search(line)
+                    if match:
+                        field_value = match.group(1).strip()
+
+                        # 根据字段名进行特定的清理
+                        field_value = self._clean_field_value(field_value, field_name)
+
+                        if field_value:
+                            logger.info(f"提取到字段 '{field_name}': '{field_value}'")
+                            return field_value
+
+        logger.warning(f"未找到字段 '{field_name}'")
+        return None
+
+    def _get_field_patterns(self, field_name: str) -> List:
+        """
+        获取字段对应的正则表达式模式，使用缓存提高性能
+
+        Args:
+            field_name (str): 字段名
+
+        Returns:
+            List: 编译后的正则表达式模式列表
+        """
+        # 检查缓存
+        if field_name in self._field_pattern_cache:
+            return self._field_pattern_cache[field_name]
+
+        # 处理特殊字段：Report No 的变体
+        if field_name.lower() in ["report no", "report number", "report no."]:
+            patterns = self._report_no_patterns
+        else:
+            # 为通用字段创建正则表达式模式
+            escaped_field = re.escape(field_name)
+            patterns = [
+                re.compile(rf'{escaped_field}\s*:\s*(.+)', re.IGNORECASE),  # 带冒号格式
+                re.compile(rf'{escaped_field}\s+(.+)', re.IGNORECASE),      # 空格分隔格式
+            ]
+
+        # 缓存模式
+        self._field_pattern_cache[field_name] = patterns
+        return patterns
+
+    def _clean_field_value(self, value: str, field_name: str) -> str:
+        """
+        根据字段类型清理提取的值（优化版本）
+
+        Args:
+            value (str): 原始提取值
+            field_name (str): 字段名
+
+        Returns:
+            str: 清理后的字段值
+        """
+        if not value:
+            return ""
+
+        # 定义清理规则映射（优化版本：更统一的字段值清理逻辑）
+        field_lower = field_name.lower()
+
+        if 'id' in field_lower or 'no' in field_lower:
+            # ID类字段：去除所有空格，只保留字母数字和常用符号
+            cleaned = re.sub(r'[^\w\.\-_/]', '', re.sub(r'\s+', '', value))
+        else:
+            # 其他字段：标准化空格
+            cleaned = re.sub(r'\s+', ' ', value.strip())
+
+        return cleaned
 
     def _extract_test_results(self, text: str) -> Dict[str, str]:
         """提取测试方法和结论 - 按行处理"""
@@ -641,16 +867,25 @@ class PDFProcessor:
             logger.info(f"field_values字典长度: {len(field_values)}")
             logger.info(f"field_values所有键: {list(field_values.keys())}")
 
-            # 检查关键字段是否存在
-            for key in ['Sampling ID', 'Report No', '最终结论']:
-                if key in field_values:
-                    logger.info(f"✓ rearrange_fields找到字段 '{key}': '{field_values[key]}'")
+            # 详细分析每个字段值的质量
+            for key, value in field_values.items():
+                if value and value != "无":
+                    logger.info(f"✓ 有效字段 '{key}': '{value}' (长度: {len(value)})")
                 else:
-                    logger.warning(f"✗ rearrange_fields未找到字段 '{key}'")
+                    logger.warning(f"✗ 无效字段 '{key}': '{value}'")
+
+            # 检查关键字段是否存在
+            for key in ['Sampling ID', 'Report No', '最终结论', '结论']:
+                if key in field_values and field_values[key] and field_values[key] != "无":
+                    logger.info(f"✓ rearrange_fields找到关键字段 '{key}': '{field_values[key]}'")
+                else:
+                    logger.warning(f"✗ rearrange_fields未找到有效字段 '{key}'")
                     # 检查相似字段名
                     similar_keys = [k for k in field_values.keys() if key.lower() in k.lower() or k.lower() in key.lower()]
                     if similar_keys:
                         logger.warning(f"  找到相似字段名: {similar_keys}")
+                        for similar_key in similar_keys:
+                            logger.warning(f"    {similar_key}: '{field_values[similar_key]}'")
 
             logger.debug(f"字段重排开始: 规则='{rule}', 扩展名='{extension}'")
             logger.debug(f"可用字段值: {field_values}")
@@ -728,24 +963,79 @@ class PDFProcessor:
         """
         logger.debug(f"验证字段: '{field_name}', 可用字段: {list(field_values.keys())}")
 
-        # 直接查找
+        # 字段名映射表 - 处理常见的字段名变体
+        field_mapping = {
+            # 报告编号变体
+            'Test Report No': 'Report No',
+            'Report No': 'Report No',
+            'Report Number': 'Report No',
+            '报告编号': 'Report No',
+
+            # SKU ID变体
+            'SKU ID': 'Sampling ID',
+            'SKU': 'Sampling ID',
+            'Sku': 'Sampling ID',
+            'sku': 'Sampling ID',
+            'SKU No': 'Sampling ID',
+
+            # Goods ID变体
+            'Goods ID': 'Report No',
+            'Goods No': 'Report No',
+            'Product ID': 'Report No',
+            'Product No': 'Report No',
+
+            # 结论变体
+            'Overall Conclusion': '结论',
+            'Conclusion': '结论',
+            'Final Conclusion': '结论',
+            '最终结论': '结论',
+            'Test Result': '结论',
+            'Result': '结论',
+        }
+
+        # 1. 直接查找
         value = field_values.get(field_name)
         if value and value != "无":
             logger.debug(f"直接匹配成功: '{field_name}' = '{value}'")
             return value
 
-        # 尝试大小写不敏感匹配
+        # 2. 使用字段映射表
+        mapped_field = field_mapping.get(field_name)
+        if mapped_field:
+            value = field_values.get(mapped_field)
+            if value and value != "无":
+                logger.debug(f"映射匹配成功: '{field_name}' -> '{mapped_field}' = '{value}'")
+                return value
+
+        # 3. 尝试大小写不敏感匹配
         for key, val in field_values.items():
             if key.lower() == field_name.lower() and val and val != "无":
                 logger.debug(f"大小写不敏感匹配: '{field_name}' -> '{key}' = '{val}'")
                 return val
 
-        # 尝试包含匹配
+        # 4. 尝试映射表的大小写不敏感匹配
+        for key, val in field_values.items():
+            for original, mapped in field_mapping.items():
+                if (key.lower() == mapped.lower() and
+                    original.lower() == field_name.lower() and
+                    val and val != "无"):
+                    logger.debug(f"映射大小写匹配: '{field_name}' -> '{key}' = '{val}'")
+                    return val
+
+        # 5. 尝试包含匹配
         for key, val in field_values.items():
             if field_name.lower() in key.lower() or key.lower() in field_name.lower():
                 if val and val != "无":
                     logger.debug(f"包含匹配成功: '{field_name}' -> '{key}' = '{val}'")
                     return val
+
+        # 6. 尝试通过映射表的包含匹配
+        for mapped_key, target_key in field_mapping.items():
+            if field_name.lower() == mapped_key.lower():
+                for key, val in field_values.items():
+                    if (target_key.lower() in key.lower() or key.lower() in target_key.lower()) and val and val != "无":
+                        logger.debug(f"映射包含匹配: '{field_name}' -> '{target_key}' -> '{key}' = '{val}'")
+                        return val
 
         logger.warning(f"字段 '{field_name}' 匹配失败，使用占位符")
 

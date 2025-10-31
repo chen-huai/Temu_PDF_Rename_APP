@@ -59,6 +59,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         info_fields = "Sampling ID;Report No;结论"  # 默认字段配置
         self.processor = PDFProcessor(info_fields=info_fields, enable_test_analysis=True)
 
+        # 添加字段验证缓存
+        self._field_validation_cache = {}
+        self._last_gui_config_hash = None
+
         # 初始化更新器
         self.auto_updater = None
         if AUTO_UPDATE_AVAILABLE:
@@ -170,12 +174,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # 获取最新的GUI配置并更新处理器
         gui_config = self._get_gui_config()
-        self.processor.update_config(
+        update_result = self.processor.update_config(
             info_fields=gui_config['info_fields'],
             original_naming_rule=gui_config['original_naming_rule'],
             new_naming_rule=gui_config['new_naming_rule'],
             test_methods_str=test_methods_str
         )
+
+        # 检查配置更新结果
+        if not update_result['success']:
+            error_msg = '\n'.join(update_result['errors'])
+            QMessageBox.warning(self, "配置错误", f"配置更新失败:\n{error_msg}")
+            return
+
+        # 显示警告信息（如果有）
+        if update_result.get('warnings'):
+            warning_msg = '\n'.join(update_result['warnings'])
+            QMessageBox.information(self, "配置提示", f"配置更新成功，但有以下提示:\n{warning_msg}")
 
         # 设置测试方法（保持向后兼容）
         self.processor.set_test_methods(test_methods_str)
@@ -399,12 +414,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # 获取最新的GUI配置并更新处理器
         gui_config = self._get_gui_config()
-        self.processor.update_config(
+        update_result = self.processor.update_config(
             info_fields=gui_config['info_fields'],
             original_naming_rule=gui_config['original_naming_rule'],
             new_naming_rule=gui_config['new_naming_rule'],
             test_methods_str=test_methods_str
         )
+
+        # 检查配置更新结果
+        if not update_result['success']:
+            error_msg = '\n'.join(update_result['errors'])
+            QMessageBox.warning(self, "配置错误", f"配置更新失败:\n{error_msg}")
+            return
+
+        # 显示警告信息（如果有）
+        if update_result.get('warnings'):
+            warning_msg = '\n'.join(update_result['warnings'])
+            QMessageBox.information(self, "配置提示", f"配置更新成功，但有以下提示:\n{warning_msg}")
 
         # 设置测试方法（保持向后兼容）
         self.processor.set_test_methods(test_methods_str)
@@ -540,6 +566,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 # 只在基本验证失败时才回退
                 return self._get_default_config()
 
+            # 进行字段依赖验证
+            dependency_result = self.validate_field_dependencies(info_fields, original_naming_rule, new_naming_rule)
+
+            # 如果有缺失字段，尝试自动补全
+            if not dependency_result['valid'] and dependency_result['missing_fields']:
+                completed_fields = self.auto_complete_fields(info_fields, dependency_result['missing_fields'])
+
+                # 显示确认对话框
+                if self.confirm_field_completion(dependency_result['missing_fields'], completed_fields):
+                    # 用户确认补全，更新字段配置和GUI显示
+                    info_fields = completed_fields
+                    self.lineEdit_3.setText(info_fields)
+                    logger.info(f"字段配置已自动补全: {completed_fields}")
+                else:
+                    # 用户取消补全，显示警告但继续执行
+                    warning_msg = f"字段配置不完整，可能影响提取效果：{dependency_result['message']}"
+                    QMessageBox.warning(self, "字段配置警告", warning_msg)
+                    logger.warning(f"用户取消字段补全: {dependency_result['message']}")
+
             config = {
                 'info_fields': info_fields,
                 'test_methods_str': test_methods_str,
@@ -655,6 +700,207 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         except Exception as e:
             return {'valid': False, 'error': f'配置验证异常: {str(e)}'}
+
+    def _parse_naming_rule_fields(self, naming_rule: str) -> List[str]:
+        """
+        从命名规则中解析字段列表
+
+        Args:
+            naming_rule (str): 命名规则字符串，如"Sampling ID-Report No-结论"
+
+        Returns:
+            List[str]: 字段名列表
+        """
+        if not naming_rule:
+            return []
+
+        # 使用横线分隔符分割字段
+        fields = [field.strip() for field in naming_rule.split('-') if field.strip()]
+        return fields
+
+    def _get_special_fields(self) -> List[str]:
+        """
+        获取特殊字段列表，这些字段不需要在字段配置中存在
+
+        Returns:
+            List[str]: 特殊字段名列表
+        """
+        return ["结论", "最终结论", "conclusion", "final conclusion"]
+
+    def _get_config_hash(self, info_fields: str, original_rule: str, new_rule: str) -> str:
+        """
+        生成配置哈希值用于缓存
+
+        Args:
+            info_fields (str): 字段配置
+            original_rule (str): 原命名规则
+            new_rule (str): 新命名规则
+
+        Returns:
+            str: 配置哈希值
+        """
+        import hashlib
+        config_str = f"{info_fields}|{original_rule}|{new_rule}"
+        return hashlib.md5(config_str.encode()).hexdigest()
+
+    def validate_field_dependencies(self, info_fields: str, original_rule: str, new_rule: str) -> Dict[str, any]:
+        """
+        验证字段依赖关系，检查命名规则中的字段是否在字段配置中存在（优化版本，支持缓存）
+
+        Args:
+            info_fields (str): 字段配置字符串
+            original_rule (str): 原命名规则
+            new_rule (str): 新命名规则
+
+        Returns:
+            Dict[str, any]: 验证结果，包含缺失字段等信息
+        """
+        try:
+            # 生成配置哈希
+            config_hash = self._get_config_hash(info_fields, original_rule, new_rule)
+
+            # 检查缓存
+            if config_hash in self._field_validation_cache:
+                logger.debug(f"使用缓存的字段依赖验证结果: {config_hash}")
+                return self._field_validation_cache[config_hash]
+
+            # 执行验证逻辑
+            config_fields = {field.strip() for field in info_fields.split(';') if field.strip()}
+            rule_fields = {
+                field.strip()
+                for field in set(self._parse_naming_rule_fields(original_rule) +
+                                self._parse_naming_rule_fields(new_rule))
+                if field.strip()
+            }
+
+            # 使用集合差值快速找出缺失字段
+            special_fields = set(self._get_special_fields())
+            missing_fields = list(rule_fields - config_fields - special_fields)
+
+            # 直接构建结果，减少中间变量
+            result = {
+                'valid': len(missing_fields) == 0,
+                'missing_fields': missing_fields,
+                'config_fields': list(config_fields),
+                'rule_fields': list(rule_fields),
+                'special_fields': list(special_fields),
+                'message': f"发现{len(missing_fields)}个缺失字段：{', '.join(missing_fields)}" if missing_fields else "字段依赖验证通过"
+            }
+
+            # 缓存结果（限制缓存大小）
+            if len(self._field_validation_cache) >= 10:  # 限制缓存大小
+                # 清除最旧的缓存项
+                oldest_key = next(iter(self._field_validation_cache))
+                del self._field_validation_cache[oldest_key]
+
+            self._field_validation_cache[config_hash] = result
+
+            logger.info(f"字段依赖验证完成: {result['message']}")
+            return result
+
+        except Exception as e:
+            logger.error(f"字段依赖验证异常: {e}")
+            return {
+                'valid': False,
+                'missing_fields': [],
+                'config_fields': [],
+                'rule_fields': [],
+                'special_fields': [],
+                'message': f"字段依赖验证异常: {str(e)}"
+            }
+
+    def auto_complete_fields(self, info_fields: str, missing_fields: List[str]) -> str:
+        """
+        自动补全缺失字段（优化版本：智能字段排序）
+
+        Args:
+            info_fields (str): 原始字段配置
+            missing_fields (List[str]): 需要添加的字段列表
+
+        Returns:
+            str: 补全后的字段配置
+        """
+        try:
+            # 解析和合并字段
+            existing_fields = [field.strip() for field in info_fields.split(';') if field.strip()]
+            all_fields = list(set(existing_fields + missing_fields))
+
+            # 定义字段优先级映射
+            field_priority = {
+                'Sampling ID': 1,
+                'Report No': 2,
+                'Product Name': 3,
+                'Batch No': 4,
+                'Expiry Date': 5,
+                'Manufacturer': 6,
+                '结论': 7,
+                '最终结论': 8
+            }
+
+            # 智能排序：先按优先级，再按名称
+            def sort_key(field):
+                priority = field_priority.get(field, 999)  # 未定义优先级的字段排在最后
+                return (priority, field)
+
+            ordered_fields = sorted(all_fields, key=sort_key)
+
+            # 使用分号连接
+            completed_fields = ';'.join(ordered_fields)
+
+            logger.info(f"字段自动补全: {info_fields} -> {completed_fields}")
+            return completed_fields
+
+        except Exception as e:
+            logger.error(f"字段自动补全异常: {e}")
+            return info_fields  # 返回原始配置
+
+    def confirm_field_completion(self, missing_fields: List[str], completed_config: str) -> bool:
+        """
+        显示字段补全确认对话框
+
+        Args:
+            missing_fields (List[str]): 缺失字段列表
+            completed_config (str): 补全后的配置
+
+        Returns:
+            bool: 用户是否确认补全
+        """
+        try:
+            # 创建确认对话框
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Question)
+            msg_box.setWindowTitle("字段配置补全")
+
+            # 构建提示信息
+            missing_text = ", ".join(missing_fields)
+            message_text = f"""检测到命名规则中使用了以下字段，但字段配置中缺失：
+
+{missing_text}
+
+建议自动补全字段配置为：
+
+{completed_config}
+
+是否确认补全？"""
+
+            msg_box.setText(message_text)
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.Yes)
+
+            # 显示对话框并获取用户响应
+            reply = msg_box.exec_()
+
+            if reply == QMessageBox.Yes:
+                logger.info("用户确认字段补全")
+                return True
+            else:
+                logger.info("用户取消字段补全")
+                return False
+
+        except Exception as e:
+            logger.error(f"显示字段补全确认对话框异常: {e}")
+            # 出错时默认不补全
+            return False
 
     def _get_default_config(self) -> Dict[str, str]:
         """
