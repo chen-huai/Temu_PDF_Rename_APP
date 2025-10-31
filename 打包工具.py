@@ -12,6 +12,14 @@ import json
 import time
 from pathlib import Path
 
+# 导入编码安全工具
+try:
+    from code_signer.utils import safe_subprocess_run
+    SAFE_SUBPROCESS_AVAILABLE = True
+except ImportError:
+    SAFE_SUBPROCESS_AVAILABLE = False
+    print("[信息] 安全subprocess工具不可用，将使用传统方式")
+
 # 导入新的签名模块
 try:
     from code_signer import CodeSigner
@@ -115,7 +123,10 @@ def build_exe():
 
     try:
         print("正在执行打包命令...")
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+        if SAFE_SUBPROCESS_AVAILABLE:
+            result = safe_subprocess_run(cmd, encoding='utf-8')
+        else:
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
 
         if result.returncode == 0:
             exe_path = "dist/PDF_Rename_Operation.exe"
@@ -254,7 +265,10 @@ def sign_exe_file(exe_path, certificate_path="170859-code-signing.cer"):
             ]
 
             print("正在使用signtool签名...")
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            if SAFE_SUBPROCESS_AVAILABLE:
+                result = safe_subprocess_run(cmd, encoding='utf-8')
+            else:
+                result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
 
             if result.returncode == 0:
                 print("[OK] signtool签名成功!")
@@ -278,7 +292,10 @@ def sign_exe_file(exe_path, certificate_path="170859-code-signing.cer"):
                 "-CertificatePath", certificate_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            if SAFE_SUBPROCESS_AVAILABLE:
+                result = safe_subprocess_run(cmd, encoding='utf-8')
+            else:
+                result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
 
             # 清理临时脚本
             try:

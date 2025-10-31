@@ -185,7 +185,10 @@ timeout /t 3 /nobreak >nul
                 f.write(script_content)
 
             # 启动更新脚本
-            subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS)
+            subprocess.Popen([script_path],
+                           creationflags=subprocess.DETACHED_PROCESS,
+                           env=os.environ.copy(),
+                           encoding='utf-8')
 
             print("已安排延迟更新，应用程序将重启")
             return True
@@ -202,11 +205,15 @@ timeout /t 3 /nobreak >nul
             if getattr(sys, 'frozen', False):
                 # 打包后的exe
                 current_exe = sys.executable
-                subprocess.Popen([current_exe])
+                subprocess.Popen([current_exe],
+                               env=os.environ.copy(),
+                               encoding='utf-8')
             else:
                 # 开发环境
                 current_script = sys.argv[0]
-                subprocess.Popen([sys.executable, current_script])
+                subprocess.Popen([sys.executable, current_script],
+                               env=os.environ.copy(),
+                               encoding='utf-8')
 
             # 退出当前进程
             sys.exit(0)

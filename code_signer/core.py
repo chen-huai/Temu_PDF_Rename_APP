@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 
 from .config import SigningConfig, CertificateConfig, ToolConfig
-from .utils import find_signtool, find_osslsigncode, calculate_file_hash
+from .utils import find_signtool, find_osslsigncode, calculate_file_hash, safe_subprocess_run
 
 
 class SigningRecord:
@@ -133,7 +133,7 @@ class CodeSigner:
 
         try:
             cmd = ['certutil', '-user', '-store', 'My', cert_config.sha1]
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(cmd, encoding='utf-8')
             return result.returncode == 0
         except Exception:
             return False
@@ -157,7 +157,7 @@ class CodeSigner:
             if self.config.output.verbose:
                 print(f"[执行] {' '.join(cmd)}")
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(cmd, encoding='utf-8')
 
             if result.returncode == 0:
                 return True, "[成功] signtool签名成功"
@@ -175,8 +175,7 @@ class CodeSigner:
         '''
 
         try:
-            result = subprocess.run(['powershell', '-Command', script],
-                                  capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(['powershell', '-Command', script], encoding='utf-8')
 
             if result.returncode == 0:
                 return True, "[成功] PowerShell签名成功"
@@ -302,7 +301,7 @@ class CodeSigner:
 
         try:
             cmd = [signtool_path, "verify", "/pa", file_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(cmd, encoding='utf-8')
 
             if result.returncode == 0:
                 return True, result.stdout

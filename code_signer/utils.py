@@ -9,6 +9,111 @@ import glob
 import hashlib
 from typing import Optional, Tuple
 
+# 编码fallback常量 - 增强中文编码支持
+DEFAULT_FALLBACK_ENCODINGS = [
+    'gbk',           # Windows中文系统主要编码
+    'cp936',         # Windows中文GBK的代码页
+    'gb2312',        # 简体中文
+    'big5',          # 繁体中文
+    'cp1252',        # Windows西欧编码
+    'latin1',        # ISO-8859-1，兜底方案
+    'utf-8-sig',     # 带BOM的UTF-8
+    'utf-8'          # 标准UTF-8
+]
+
+
+class FailedResult:
+    """subprocess失败结果对象"""
+    def __init__(self, error_msg):
+        self.returncode = 1
+        self.stdout = ""
+        self.stderr = error_msg
+
+
+def decode_output_safely(output_bytes, encoding='utf-8', fallback_encodings=None):
+    """
+    安全解码字节输出，支持多编码fallback
+
+    增强版本，支持更多中文编码和错误处理
+
+    :param output_bytes: 要解码的字节数据
+    :param encoding: 首选编码
+    :param fallback_encodings: 备选编码列表
+    :return: 解码后的字符串
+    """
+    if not output_bytes:
+        return ""
+
+    if isinstance(output_bytes, str):
+        return output_bytes
+
+    if fallback_encodings is None:
+        fallback_encodings = DEFAULT_FALLBACK_ENCODINGS
+
+    # 首先尝试指定编码
+    try:
+        return output_bytes.decode(encoding)
+    except (UnicodeDecodeError, UnicodeError) as e:
+        # 只在调试模式下打印详细错误信息
+        if os.environ.get('DEBUG_ENCODING'):
+            print(f"编码失败 {encoding}: {str(e)[:100]}...")  # 限制错误信息长度
+
+    # 尝试备选编码
+    for enc in fallback_encodings:
+        try:
+            decoded = output_bytes.decode(enc)
+            if os.environ.get('DEBUG_ENCODING'):
+                print(f"成功使用编码: {enc}")
+            return decoded
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+
+    # 最后使用replace策略
+    try:
+        decoded = output_bytes.decode(encoding, errors='replace')
+        if os.environ.get('DEBUG_ENCODING'):
+            print(f"使用replace策略解码，编码: {encoding}")
+        return decoded
+    except (UnicodeDecodeError, UnicodeError, TypeError) as e:
+        # 如果连replace都失败，返回字节的字符串表示
+        if os.environ.get('DEBUG_ENCODING'):
+            print(f"解码完全失败: {str(e)[:100]}...")
+        return str(output_bytes)
+
+
+def safe_subprocess_run(cmd, encoding='utf-8', fallback_encodings=None, **kwargs):
+    """
+    安全的subprocess调用，自动处理编码错误
+
+    :param cmd: 命令列表
+    :param encoding: 首选编码
+    :param fallback_encodings: 备选编码列表
+    :param kwargs: subprocess.run的其他参数
+    :return: subprocess结果对象
+    """
+    if fallback_encodings is None:
+        fallback_encodings = DEFAULT_FALLBACK_ENCODINGS
+
+    # 设置默认参数
+    default_kwargs = {
+        'capture_output': True,
+        'text': False,  # 我们将手动处理编码
+    }
+    default_kwargs.update(kwargs)
+
+    try:
+        result = subprocess.run(cmd, **default_kwargs)
+
+        # 安全解码输出
+        result.stdout = decode_output_safely(result.stdout or b'', encoding, fallback_encodings)
+        result.stderr = decode_output_safely(result.stderr or b'', encoding, fallback_encodings)
+
+        return result
+
+    except (OSError, subprocess.SubprocessError) as e:
+        # 处理subprocess相关的异常
+        return FailedResult(str(e))
+
 
 def find_signtool(path_config: str = "auto") -> Optional[str]:
     """
@@ -107,7 +212,7 @@ def verify_signature(file_path: str) -> Tuple[bool, str]:
 
     try:
         cmd = [signtool_path, "verify", "/pa", file_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+        result = safe_subprocess_run(cmd, encoding='utf-8')
 
         if result.returncode == 0:
             return True, result.stdout
@@ -138,7 +243,7 @@ def get_certificate_info(sha1_hash: str) -> Optional[dict]:
     """
     try:
         cmd = ['certutil', '-user', '-store', 'My', sha1_hash]
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+        result = safe_subprocess_run(cmd, encoding='utf-8')
 
         if result.returncode == 0:
             # 解析证书信息
@@ -257,14 +362,7 @@ def run_command(cmd: list, cwd: str = None, timeout: int = None) -> Tuple[bool, 
     :return: (是否成功, 标准输出, 标准错误)
     """
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            cwd=cwd,
-            timeout=timeout
-        )
+        result = safe_subprocess_run(cmd, encoding='utf-8', cwd=cwd, timeout=timeout)
         return result.returncode == 0, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
         return False, "", "命令执行超时"

@@ -159,7 +159,7 @@ class SigningConfig:
         if self.hash_algorithm not in ["sha1", "sha256"]:
             errors.append(f"不支持的哈希算法: {self.hash_algorithm}")
 
-        if self.max_retries < 1:
+        if self.policies.max_retries < 1:
             errors.append("最大重试次数必须大于0")
 
         return errors

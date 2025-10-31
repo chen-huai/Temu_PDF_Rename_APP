@@ -18,6 +18,8 @@ import json
 import glob
 import hashlib
 from pathlib import Path
+from code_signer.utils import safe_subprocess_run
+from code_signer.config_loader import load_signing_config, get_config_load_info
 from typing import Dict, List, Tuple, Optional, Any
 
 
@@ -30,71 +32,88 @@ class SigningTool:
         :param config_path: 配置文件路径
         """
         self.config_path = config_path
-        self.config = self.load_config()
         self.signing_records = []
 
-    def load_config(self) -> Dict[str, Any]:
-        """
-        加载配置文件
-        :return: 配置字典
-        """
+        # 使用新的配置加载器
         try:
-            if not os.path.exists(self.config_path):
-                raise FileNotFoundError(f"配置文件不存在: {self.config_path}")
+            self.config_obj = load_signing_config(config_path)
+            load_info = get_config_load_info()
+            print(f"[信息] 使用配置源: {load_info['load_source']}")
 
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            # 验证配置
+            errors = self.config_obj.validate()
+            if errors:
+                print("[警告] 配置验证发现问题:")
+                for error in errors:
+                    print(f"  - {error}")
+            else:
+                print("[信息] 配置验证通过")
+
         except Exception as e:
-            print(f"[错误] 加载配置文件失败: {e}")
-            return {}
+            print(f"[错误] 初始化签名工具失败: {e}")
+            print("请确保 code_signer 模块和配置文件存在且格式正确")
+            raise
 
     def get_config(self, key_path: str, default=None) -> Any:
         """
-        获取配置值（支持点分隔路径）
+        获取配置值（兼容旧接口）
         :param key_path: 配置路径，如 'signature.certificates.default'
         :param default: 默认值
         :return: 配置值
         """
-        keys = key_path.split('.')
-        value = self.config
+        try:
+            # 支持新的配置对象访问方式
+            if hasattr(self.config_obj, key_path):
+                return getattr(self.config_obj, key_path)
 
-        for key in keys:
-            if isinstance(value, dict) and key in value:
-                value = value[key]
-            else:
-                return default
+            # 支持嵌套属性访问
+            keys = key_path.split('.')
+            value = self.config_obj
 
-        return value
+            for key in keys:
+                if hasattr(value, key):
+                    value = getattr(value, key)
+                elif hasattr(value, '__dict__') and key in value.__dict__:
+                    value = value.__dict__[key]
+                else:
+                    return default
 
+            return value
+
+        except Exception:
+            return default
+
+    
     def find_signing_tool(self, tool_name: str = None) -> Optional[str]:
         """
         查找签名工具
         :param tool_name: 工具名称，如果为None则按优先级查找第一个可用的
         :return: 工具路径，如果未找到返回None
         """
-        tools = self.get_config('signature.signing_tools', {})
+        # 使用新的配置对象
+        tools = self.config_obj.signing_tools
 
         if tool_name:
-            if tool_name not in tools or not tools[tool_name].get('enabled', False):
+            if tool_name not in tools or not tools[tool_name].enabled:
                 return None
             tool_configs = {tool_name: tools[tool_name]}
         else:
             # 按优先级排序
             tool_configs = dict(sorted(
                 tools.items(),
-                key=lambda x: x[1].get('priority', 999)
+                key=lambda x: x[1].priority
             ))
 
         for name, config in tool_configs.items():
-            if not config.get('enabled', False):
+            if not config.enabled:
                 continue
 
             if name == 'signtool':
-                path = self._find_signtool(config.get('path', 'auto'))
+                path = self._find_signtool(config.path)
             elif name == 'powershell':
                 path = 'powershell'  # PowerShell是内置的
             elif name == 'osslsigncode':
-                path = self._find_osslsigncode(config.get('path', 'auto'))
+                path = self._find_osslsigncode(config.path)
             else:
                 continue
 
@@ -159,7 +178,7 @@ class SigningTool:
 
         try:
             cmd = ['certutil', '-user', '-store', 'My', cert_config['sha1']]
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(cmd, encoding='utf-8')
             return result.returncode == 0
         except Exception:
             return False
@@ -207,7 +226,7 @@ class SigningTool:
             if self.get_config('signature.output.verbose', False):
                 print(f"[执行] {' '.join(cmd)}")
 
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(cmd, encoding='utf-8')
 
             if result.returncode == 0:
                 return True, "[成功] 签名成功"
@@ -227,8 +246,7 @@ class SigningTool:
         '''
 
         try:
-            result = subprocess.run(['powershell', '-Command', script],
-                                  capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(['powershell', '-Command', script], encoding='utf-8')
 
             if result.returncode == 0:
                 return True, "[成功] PowerShell签名成功"
@@ -311,7 +329,7 @@ class SigningTool:
 
         try:
             cmd = [signtool_path, "verify", "/pa", file_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+            result = safe_subprocess_run(cmd, encoding='utf-8')
 
             if result.returncode == 0:
                 return True, result.stdout

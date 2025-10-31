@@ -1157,10 +1157,14 @@ class UpdateProgressDialog(QDialog):
             # 重启应用
             if getattr(sys, 'frozen', False):
                 # 打包后的exe
-                subprocess.Popen([sys.executable])
+                subprocess.Popen([sys.executable],
+                               env=os.environ.copy(),
+                               encoding='utf-8')
             else:
                 # 开发环境
-                subprocess.Popen([sys.executable, sys.argv[0]])
+                subprocess.Popen([sys.executable, sys.argv[0]],
+                               env=os.environ.copy(),
+                               encoding='utf-8')
 
             # 退出当前应用
             QApplication.quit()
